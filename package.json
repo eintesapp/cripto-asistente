@@ -1,0 +1,1 @@
+{"type":"module","name":"cripto-asistente","private":true,"scripts":{"test":"node test/engine.test.mjs","scan":"node scanner/scan.mjs"}}
