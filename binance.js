@@ -61,12 +61,13 @@ export async function tickers24h() {
 }
 
 // Pares USDT con más volumen, sin stablecoins ni tokens apalancados.
-export function topUsdtPairs(tickers, n = 30, minQuoteVolume = 5e6) {
+export function topUsdtPairs(tickers, n = 30, minQuoteVolume = 5e6, exclude = []) {
+  const ex = new Set(exclude.map((s) => s.toUpperCase().replace(/USDT$/, '')));
   return tickers
     .filter((t) => t.symbol.endsWith('USDT'))
     .filter((t) => {
       const base = t.symbol.slice(0, -4);
-      return !STABLES.has(base) && !/(UP|DOWN|BULL|BEAR)$/.test(base) && +t.quoteVolume >= minQuoteVolume && +t.count > 0;
+      return !STABLES.has(base) && !ex.has(base) && !/USD/.test(base) && !/(UP|DOWN|BULL|BEAR|[235]L|[235]S)$/.test(base) && +t.quoteVolume >= minQuoteVolume && +t.count > 0;
     })
     .sort((a, b) => +b.quoteVolume - +a.quoteVolume)
     .slice(0, n)

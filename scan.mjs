@@ -43,7 +43,7 @@ R/B: ${s.rr1.toFixed(1)} / ${s.rr2.toFixed(1)} · Puntuación técnica ${s.score
 let scan;
 try {
   scan = await runScan({
-    topN: cfg.topN || 30, extraSymbols: cfg.extraSymbols || [], timeframes: cfg.alertTimeframes || ['1h', '4h'],
+    topN: cfg.topN || 30, extraSymbols: cfg.extraSymbols || [], exclude: cfg.exclude || [], timeframes: cfg.alertTimeframes || ['1h', '4h'],
     minRR: cfg.minRR || 2, bigDrop24hPct: cfg.bigDrop24hPct ?? -10,
   });
 } catch (e) {

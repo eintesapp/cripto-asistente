@@ -3,10 +3,10 @@
 import { tickers24h, topUsdtPairs, klines, pool, HIGHER_TF } from './binance.js';
 import { computeIndicators, trendAt, analyzeSeries } from './signals.js';
 
-export async function runScan({ topN = 30, extraSymbols = [], timeframes = ['1h', '4h'], minRR = 2, bigDrop24hPct = -10, onProgress } = {}) {
+export async function runScan({ topN = 30, extraSymbols = [], exclude = [], timeframes = ['1h', '4h'], minRR = 2, bigDrop24hPct = -10, onProgress } = {}) {
   const now = Date.now();
   const tickers = await tickers24h();
-  const top = topUsdtPairs(tickers, topN);
+  const top = topUsdtPairs(tickers, topN, 5e6, exclude);
   for (const sym of extraSymbols) {
     if (top.find((t) => t.symbol === sym)) continue;
     const t = tickers.find((x) => x.symbol === sym);

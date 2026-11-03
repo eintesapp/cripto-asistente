@@ -12,7 +12,7 @@ const store = {
 };
 const DEFAULT_SETTINGS = {
   capital: 1000, riskPct: 1, minRR: 2, maxDailyLossPct: 3, maxExposurePct: 20, feePct: 0.1,
-  topN: 25, liveTfs: ['15m', '1h', '4h'], autoRefreshMin: 5, notify: false, minQualityNotify: 'media', watch: '',
+  topN: 25, liveTfs: ['15m', '1h', '4h'], autoRefreshMin: 5, notify: false, minQualityNotify: 'media', watch: '', exclude: 'SOXLB',
 };
 let settings = { ...DEFAULT_SETTINGS, ...store.get('settings', {}) };
 const state = { scan: null, source: '', history: [], scanning: false, progress: '', filter: { action: 'accion', tf: 'todas', quality: 'todas' } };
@@ -48,11 +48,12 @@ async function loadScannerData() {
 async function liveScan() {
   if (state.scanning) return;
   state.scanning = true;
+  if (!state.scan) render();
   const prevKeys = new Set((state.scan?.signals || []).filter(isActionable).map(sigKey));
   try {
     const watch = settings.watch.split(/[\s,]+/).filter(Boolean).map((s) => s.toUpperCase()).map((s) => (s.endsWith('USDT') ? s : s + 'USDT'));
     const r = await runScan({
-      topN: settings.topN, extraSymbols: watch, timeframes: settings.liveTfs, minRR: settings.minRR,
+      topN: settings.topN, extraSymbols: watch, exclude: (settings.exclude || '').split(/[\s,]+/).filter(Boolean), timeframes: settings.liveTfs, minRR: settings.minRR,
       onProgress: (d, t) => setStatus(`<span class="spin"></span> ${Math.round(d / t * 100)}%`),
     });
     delete r.data;
@@ -387,6 +388,7 @@ function vAjustes() {
       <label class="f">Cantidad de monedas (por volumen)<input name="topN" type="number" min="5" max="60" value="${s.topN}"></label>
       <div class="chips">${TIMEFRAMES.map(tfChip).join('')}</div>
       <label class="f">Monedas extra a vigilar (ej: PEPE, LINK)<input name="watch" value="${esc(s.watch)}"></label>
+      <label class="f">Monedas a excluir (ej: SOXLB)<input name="exclude" value="${esc(s.exclude || '')}"></label>
       <label class="f">Actualizar cada (minutos, mientras la app está abierta)<input name="autoRefreshMin" type="number" min="1" value="${s.autoRefreshMin}"></label>
       <h2>Notificaciones en el celular</h2>
       <label class="f">Calidad mínima para avisar<select name="minQualityNotify"><option ${s.minQualityNotify === 'media' ? 'selected' : ''}>media</option><option ${s.minQualityNotify === 'alta' ? 'selected' : ''}>alta</option></select></label>
@@ -468,7 +470,7 @@ document.addEventListener('submit', async (e) => {
     settings = {
       ...settings, capital: num('capital'), riskPct: num('riskPct'), minRR: num('minRR'), maxDailyLossPct: num('maxDailyLossPct'),
       maxExposurePct: num('maxExposurePct'), feePct: num('feePct'), topN: Math.min(60, Math.max(5, num('topN'))),
-      liveTfs: fd.getAll('tf').length ? fd.getAll('tf') : ['1h'], watch: fd.get('watch'), autoRefreshMin: Math.max(1, num('autoRefreshMin')),
+      liveTfs: fd.getAll('tf').length ? fd.getAll('tf') : ['1h'], watch: fd.get('watch'), exclude: fd.get('exclude'), autoRefreshMin: Math.max(1, num('autoRefreshMin')),
       minQualityNotify: fd.get('minQualityNotify'), notify: wantNotify,
     };
     if (wantNotify && 'Notification' in window && Notification.permission === 'default') await Notification.requestPermission();
