@@ -1,0 +1,16 @@
+{
+  "orderUsdt": 7,
+  "maxOrderUsdt": 10,
+  "maxOpenTrades": 1,
+  "maxDailyLossUsdt": 0.5,
+  "timeframes": ["1h", "4h"],
+  "minQuality": "media",
+  "allowCaution": false,
+  "target": "tp1",
+  "entryTolerancePct": 0.6,
+  "proposalTtlMin": 20,
+  "maxHoldBars": 48,
+  "scanEveryMin": 15,
+  "topN": 25,
+  "exclude": ["SOXLB"]
+}
