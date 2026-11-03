@@ -1,0 +1,35 @@
+name: Escáner de mercado
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: escaner
+  cancel-in-progress: false
+
+jobs:
+  escanear:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Analizar mercado y enviar alertas
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          APP_URL: ${{ vars.APP_URL }}
+        run: node scan.mjs
+      - name: Guardar resultados
+        run: |
+          git config user.name "escaner-bot"
+          git config user.email "escaner-bot@users.noreply.github.com"
+          git add data/
+          git diff --cached --quiet || (git commit -m "Escaneo $(date -u +'%Y-%m-%d %H:%M') UTC" && git pull --rebase && git push)
