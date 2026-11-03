@@ -43,7 +43,7 @@ h2 { font-size: 15px; margin: 18px 0 8px; color: var(--muted); font-weight: 600;
 .levels b { display: block; font-size: 13px; }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 10px; }
 .chip { border: 1px solid var(--line); background: var(--card); color: var(--text); padding: 6px 12px; border-radius: 999px; font-size: 13px; cursor: pointer; }
-.chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.chip.on, label.chip.on { background-color: #4c8dff !important; border-color: #4c8dff !important; color: #ffffff !important; font-weight: 600; }
 button.btn { background: var(--accent); color: #fff; border: 0; padding: 10px 14px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; }
 button.btn.ghost { background: var(--card2); color: var(--text); border: 1px solid var(--line); }
 button.btn:disabled { opacity: .5; }

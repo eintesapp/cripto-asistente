@@ -1,6 +1,6 @@
 // Service worker: permite instalar la app y abrirla sin conexión.
 // Los datos de mercado NUNCA se guardan en caché (siempre se piden frescos).
-const VERSION = 'v1.0.2';
+const VERSION = 'v1.0.3';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'chart.js', 'manifest.webmanifest',
   'indicators.js', 'signals.js', 'binance.js', 'scan.js', 'backtest.js', 'risk.js',
   'icon-192.png', 'icon-512.png'];
