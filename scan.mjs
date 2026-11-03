@@ -3,9 +3,9 @@
 // data/*.json (que lee la app) y envía alertas a Telegram.
 // Uso local:  node scanner/scan.mjs   (variables opcionales: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, APP_URL)
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { runScan } from '../engine/scan.js';
+import { runScan } from './scan.js';
 
-const root = new URL('..', import.meta.url);
+const root = new URL('./', import.meta.url);
 const path = (p) => new URL(p, root);
 const readJSON = async (p, def) => { try { return JSON.parse(await readFile(path(p), 'utf8')); } catch { return def; } };
 

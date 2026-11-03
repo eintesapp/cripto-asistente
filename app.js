@@ -1,8 +1,8 @@
-import { klines, klinesHistory, HIGHER_TF, TIMEFRAMES } from './engine/binance.js';
-import { analyzeSeries } from './engine/signals.js';
-import { runScan } from './engine/scan.js';
-import { backtest, STRATEGIES } from './engine/backtest.js';
-import { positionSize, dailyLossStatus } from './engine/risk.js';
+import { klines, klinesHistory, HIGHER_TF, TIMEFRAMES } from './binance.js';
+import { analyzeSeries } from './signals.js';
+import { runScan } from './scan.js';
+import { backtest, STRATEGIES } from './backtest.js';
+import { positionSize, dailyLossStatus } from './risk.js';
 import { drawChart, drawEquity } from './chart.js';
 
 // ---------- Almacenamiento local (seguro ante modo privado) ----------
@@ -80,7 +80,7 @@ async function notifyNew(list) {
     const title = `${s.action === 'COMPRA' ? '🟢' : '🔴'} ${s.action} ${s.symbol} (${s.timeframe})`;
     const body = `Calidad ${s.quality} · Entrada ${fmt(s.entry)} · SL ${fmt(s.sl)} · TP1 ${fmt(s.tp1)}`;
     const data = { url: `#/senal/${s.symbol}/${s.timeframe}` };
-    if (reg) reg.showNotification(title, { body, data, icon: 'icons/icon-192.png', tag: sigKey(s) });
+    if (reg) reg.showNotification(title, { body, data, icon: 'icon-192.png', tag: sigKey(s) });
     else new Notification(title, { body });
   }
 }

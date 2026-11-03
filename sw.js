@@ -1,9 +1,9 @@
 // Service worker: permite instalar la app y abrirla sin conexión.
 // Los datos de mercado NUNCA se guardan en caché (siempre se piden frescos).
-const VERSION = 'v1.0.0';
+const VERSION = 'v1.0.1';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'chart.js', 'manifest.webmanifest',
-  'engine/indicators.js', 'engine/signals.js', 'engine/binance.js', 'engine/scan.js', 'engine/backtest.js', 'engine/risk.js',
-  'icons/icon-192.png', 'icons/icon-512.png'];
+  'indicators.js', 'signals.js', 'binance.js', 'scan.js', 'backtest.js', 'risk.js',
+  'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
