@@ -2,12 +2,11 @@
   "topN": 30,
   "extraSymbols": [],
   "alertTimeframes": [
-    "15m",
     "1h",
     "4h",
     "1d"
   ],
-  "alertMinQuality": "media",
+  "alertMinQuality": "alta",
   "alertEvents": true,
   "bigDrop24hPct": -10,
   "minRR": 2,
