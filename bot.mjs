@@ -293,8 +293,20 @@ export function createBot({ env, config = {}, statePath = 'bot-state.json', fetc
       try { out = execFileSync('git', ['pull', '--ff-only'], { encoding: 'utf8', timeout: 60e3 }); } catch (e) { await send('❌ No pude actualizar: ' + esc(e.message)); return; }
       await send('🔄 ' + esc(out.trim()) + '\nReiniciando…');
       setTimeout(() => process.exit(0), 1000);
+    } else if (text.startsWith('/prueba')) {
+      // Operación de práctica para probar el circuito completo. Solo en TESTNET.
+      if (ex.mode !== 'testnet') { await send('⛔ /prueba solo funciona en modo TESTNET.'); return; }
+      const symbol = ((text.split(/\s+/)[1] || 'BTC').toUpperCase().replace(/USDT$/, '')) + 'USDT';
+      let price;
+      try { price = await marketPrice(symbol); } catch (e) { await send('No encontré el par ' + symbol); return; }
+      const id = String(st.seq++);
+      const amount = Math.min(cfg.orderUsdt, cfg.maxOrderUsdt);
+      st.proposals[id] = { id, symbol, timeframe: '1h', entry: price, sl: price * 0.985, tp: price * 1.02, slPct: 0.015, tpPct: 0.02, amount, quality: 'prueba', score: 0, createdAt: now(), status: 'pendiente' };
+      save();
+      await send(`🧪 <b>PRUEBA (Testnet, dinero ficticio): COMPRA ${symbol}</b>\nPrecio ${fmt(price)} · SL −1,5% · TP +2%\nMonto: <b>${amount} USDT</b>\nNo es una señal real: sirve para probar el circuito compra → OCO → cierre.`,
+        [[{ text: `✅ Sí, comprar ${amount} USDT`, callback_data: `buy:${id}` }, { text: '❌ No', callback_data: `skip:${id}` }]]);
     } else if (text.startsWith('/escanear')) { const r = await scanAndPropose(); await send(`🔎 Escaneo listo: ${r.signals} análisis, ${r.proposed} propuesta(s).`); }
-    else await send('Comandos: /estado · /pausa · /reanudar · /cerrar · /escanear · /actualizar');
+    else await send('Comandos: /estado · /pausa · /reanudar · /cerrar · /escanear · /prueba · /actualizar');
   }
 
   async function statusText() {

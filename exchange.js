@@ -8,6 +8,8 @@ export const BASES = {
 };
 
 export function createExchange({ apiKey, apiSecret, mode = 'testnet', fetchFn = globalThis.fetch, now = () => Date.now() }) {
+  mode = String(mode || 'testnet').trim().toLowerCase();
+  apiKey = String(apiKey || '').trim(); apiSecret = String(apiSecret || '').trim();
   if (!BASES[mode]) throw new Error('BINANCE_MODE debe ser "testnet" o "real"');
   const base = BASES[mode];
   let offset = 0; // diferencia entre el reloj del servidor y el de Binance
