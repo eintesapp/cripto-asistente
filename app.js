@@ -1,5 +1,5 @@
 import { klines, klinesHistory, tickers24h, pool } from './binance.js';
-import { MAJORS, TREND, trendIndicators, breakoutSignal, simulateTrend } from './tendencia.js';
+import { MAJORS, TREND, trendIndicators, breakoutSignal, simulateTrend, simulatePortfolio } from './tendencia.js';
 import { robotSvg } from './robot.js';
 import { drawTrendChart, drawEquity, gaugeSvg } from './chart.js';
 
@@ -195,29 +195,41 @@ function vMoneda(symbol) {
 function vProbar(params) {
   const s = params.get('s') || store.get('probarSym', 'TODAS');
   const years = +(params.get('y') || store.get('probarY', 5));
+  const mode = store.get('probarMode', 'bot');
   return `<section class="hero">${robotSvg(70, 'feliz', 'pb')}<div class="bubble"><b>Laboratorio</b><span>Prueba la estrategia con años de datos reales, como si el robot hubiera operado.</span></div></section>
     <div class="card"><label class="f">Cripto<select id="pSym"><option value="TODAS" ${s === 'TODAS' ? 'selected' : ''}>Las 20 criptos (como el robot)</option>${MAJORS.map((m) => `<option value="${m}" ${m === s ? 'selected' : ''}>${name(m)}</option>`).join('')}</select></label>
     <label class="f">Periodo<select id="pY">${[2, 3, 5].map((y) => `<option value="${y}" ${y === years ? 'selected' : ''}>Últimos ${y} años</option>`).join('')}</select></label>
+    <label class="f">Modo<select id="pMode"><option value="bot" ${mode === 'bot' ? 'selected' : ''}>Como mi bot (capital real, máx. abiertas)</option><option value="teo" ${mode === 'teo' ? 'selected' : ''}>Teórico (todas las señales)</option></select></label>
+    <div id="pBotOpts" style="${mode === 'bot' ? '' : 'display:none'}"><div class="grid2">
+      <label class="f">Capital inicial (USDT)<input id="pCap" type="number" min="10" step="any" value="${prefs.capital}"></label>
+      <label class="f">Riesgo por operación (%)<input id="pRisk" type="number" min="0.1" max="5" step="0.1" value="${prefs.riskPct}"></label>
+      <label class="f">Máx. operaciones abiertas<input id="pMax" type="number" min="1" max="10" step="1" value="${lab.maxOpen}"></label>
+      <label class="f">Tope por orden (USDT)<input id="pTope" type="number" min="6" step="any" value="${lab.maxOrder}"></label></div></div>
     <button class="btn block" id="pRun">Probar estrategia</button>
-    <p class="note">Mismas reglas que el robot: entra al día siguiente de la ruptura, stop inicial 2,5 × volatilidad, stop que sube y comisión 0,1% por lado. Resultado en % con tu riesgo de ${prefs.riskPct}% por operación.</p></div>
+    <p class="note">Mismas reglas que el robot: entra al día siguiente de la ruptura, stop inicial 2,5 × volatilidad, stop que sube y comisión 0,1% por lado. En modo "Como mi bot" se respetan tu capital, el máximo de operaciones abiertas, el mínimo de Binance (~6 USDT) y el tope por orden, con interés compuesto.</p></div>
     <div id="pOut"></div>`;
 }
 
+let lab = { maxOpen: 3, maxOrder: 15, ...store.get('lab', {}) };
+const histCache = {};
 async function runProbar() {
-  const s = $('#pSym').value, y = +$('#pY').value, out = $('#pOut');
-  store.set('probarSym', s); store.set('probarY', y);
+  const s = $('#pSym').value, y = +$('#pY').value, out = $('#pOut'), mode = $('#pMode').value;
+  store.set('probarSym', s); store.set('probarY', y); store.set('probarMode', mode);
+  if (mode === 'bot') { lab = { maxOpen: Math.max(1, Math.round(+$('#pMax').value || 3)), maxOrder: Math.max(6, +$('#pTope').value || 15) }; store.set('lab', lab); }
   const syms = s === 'TODAS' ? MAJORS : [s];
   out.innerHTML = loadingView(`Descargando ${y} años de datos${syms.length > 1 ? ` de ${syms.length} criptos` : ''}…`);
   try {
     const all = [], bh = [];
     let done = 0;
     await pool(syms, async (sym) => {
-      const c = await klinesHistory(sym, '1d', y * 365 + 210);
+      const key = sym + '|' + y;
+      const c = histCache[key] || (histCache[key] = await klinesHistory(sym, '1d', y * 365 + 210));
       const r = simulateTrend(c);
       r.trades.forEach((t) => all.push({ ...t, symbol: sym }));
       if (c.close.length > 215) bh.push((c.close.at(-1) / c.close[210] - 1) * 100);
       done++; const p = out.querySelector('.prog'); if (p) p.textContent = `${done}/${syms.length}`;
     }, 4);
+    if (mode === 'bot') return renderBotLab(out, all, s, y, bh);
     all.sort((a, b) => a.exitTime - b.exitTime);
     const wins = all.filter((t) => t.r > 0), sumR = all.reduce((s2, t) => s2 + t.r, 0);
     const gw = wins.reduce((s2, t) => s2 + t.r, 0), gl = -all.filter((t) => t.r <= 0).reduce((s2, t) => s2 + t.r, 0);
@@ -240,6 +252,41 @@ async function runProbar() {
       ${all.slice(-15).reverse().map((t) => `<tr><td>${name(t.symbol)}</td><td>${date(t.entryTime)}</td><td>${t.bars}</td><td class="${t.pct >= 0 ? 'up' : 'down'}">${pct(t.pct)}</td></tr>`).join('')}</table></div>${DISCLAIMER}`;
     requestAnimationFrame(() => drawEquity($('#eq'), pts, cum >= 0 ? '#22c55e' : '#ef4444'));
   } catch (e) { out.innerHTML = `<div class="callout warn">No se pudo completar: ${esc(e.message)}</div>`; }
+}
+
+function renderBotLab(out, all, s, y, bh) {
+  const capital = Math.max(10, +$('#pCap').value || prefs.capital), riskPct = Math.min(5, Math.max(0.1, +$('#pRisk').value || prefs.riskPct));
+  const r = simulatePortfolio(all, { capital, riskPct, maxOpen: lab.maxOpen, maxOrder: lab.maxOrder, order: MAJORS });
+  const usd = (v) => `${v < 0 ? '−' : ''}${Math.abs(v).toFixed(2)} USDT`;
+  const bhAvg = bh.length ? bh.reduce((a, b) => a + b, 0) / bh.length : null;
+  // Resultado por año
+  const byYear = {};
+  for (const p of r.taken) { const k = new Date(p.exitTime).getUTCFullYear(); (byYear[k] ||= { n: 0, pnl: 0 }); byYear[k].n++; byYear[k].pnl += p.pnl; }
+  const months = y * 12, perMonth = r.trades / months;
+  const pts = r.curve.map((c) => ({ v: c.v - capital }));
+  const good = r.end > capital;
+  out.innerHTML = `<div class="card"><div class="row between"><b>Como tu bot · ${s === 'TODAS' ? '20 criptos' : name(s)} · ${y} años</b><span class="pill ${good ? 'p-ruptura' : 'p-down'}">${good ? 'GANA' : 'PIERDE'}</span></div>
+    <div class="grid2" style="margin-top:12px">
+      <div class="stat"><div class="k">Empezaste con</div><div class="v mono">${usd(capital)}</div></div>
+      <div class="stat"><div class="k">Terminarías con</div><div class="v mono ${good ? 'up' : 'down'}">${usd(r.end)}</div></div></div>
+    <canvas class="eq" id="eq" style="margin:12px 0 4px"></canvas>
+    <div class="grid3">
+      <div class="stat"><div class="k">Rentabilidad</div><div class="v ${good ? 'up' : 'down'}">${pct(r.returnPct)}</div></div>
+      <div class="stat"><div class="k">Peor caída</div><div class="v down">−${r.maxDDPct.toFixed(1)}%</div></div>
+      <div class="stat"><div class="k">Ganadoras</div><div class="v">${Math.round(r.winRate)}%</div></div>
+      <div class="stat"><div class="k">Operaciones</div><div class="v">${r.trades}</div></div>
+      <div class="stat"><div class="k">Por mes</div><div class="v">${perMonth.toFixed(1)}</div></div>
+      <div class="stat"><div class="k">Sin cupo</div><div class="v">${r.skippedFull + r.skippedCash}</div></div></div>
+    <p class="note">Capital ${capital} USDT, riesgo ${riskPct}% por operación, máximo ${lab.maxOpen} abiertas y tope ${lab.maxOrder} USDT por orden. "Sin cupo" son señales que el bot no habría tomado por tener el máximo de operaciones abiertas o poco saldo libre.
+    ${r.best ? `Mejor: ${name(r.best.symbol)} ${usd(r.best.pnl)} (${pct(r.best.pct)}). ` : ''}${r.worst ? `Peor: ${name(r.worst.symbol)} ${usd(r.worst.pnl)}. ` : ''}${bhAvg != null ? `Comprar y mantener (promedio de las criptos): ${pct(bhAvg)}.` : ''}</p></div>
+    <h2>Año por año</h2>
+    <div class="card scroll"><table><tr><th>Año</th><th>Operaciones</th><th>Resultado</th></tr>
+    ${Object.entries(byYear).map(([k, v]) => `<tr><td>${k}</td><td>${v.n}</td><td class="${v.pnl >= 0 ? 'up' : 'down'}">${usd(v.pnl)}</td></tr>`).join('')}</table>
+    <p class="note">Mira los años malos: es normal que la estrategia pase periodos largos perdiendo de a poco. Pregúntate si podrías aguantarlos sin abandonarla.</p></div>
+    <h2>Últimas operaciones que habría tomado</h2>
+    <div class="card scroll"><table><tr><th>Cripto</th><th>Entrada</th><th>Monto</th><th>Resultado</th></tr>
+    ${r.taken.slice(-15).reverse().map((p) => `<tr><td>${name(p.symbol)}</td><td>${date(p.entryTime)}</td><td>${p.amount.toFixed(2)}</td><td class="${p.pnl >= 0 ? 'up' : 'down'}">${usd(p.pnl)} <span class="tiny">(${pct(p.pct)})</span></td></tr>`).join('')}</table></div>${DISCLAIMER}`;
+  requestAnimationFrame(() => drawEquity($('#eq'), pts, good ? '#22c55e' : '#ef4444'));
 }
 
 function vRobot() {
@@ -296,6 +343,7 @@ document.addEventListener('click', (e) => {
   if (go && !e.target.closest('a,button')) location.hash = go.dataset.go;
   if (e.target.id === 'pRun') runProbar();
 });
+document.addEventListener('change', (e) => { if (e.target.id === 'pMode') { const o = $('#pBotOpts'); if (o) o.style.display = e.target.value === 'bot' ? '' : 'none'; } });
 document.addEventListener('submit', (e) => {
   if (e.target.id !== 'prefsForm') return;
   e.preventDefault();
