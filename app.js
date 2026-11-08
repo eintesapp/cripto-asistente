@@ -1,501 +1,313 @@
-import { klines, klinesHistory, HIGHER_TF, TIMEFRAMES } from './binance.js';
-import { analyzeSeries } from './signals.js';
-import { runScan } from './scan.js';
-import { backtest, STRATEGIES } from './backtest.js';
-import { positionSize, dailyLossStatus } from './risk.js';
-import { drawChart, drawEquity } from './chart.js';
+import { klines, klinesHistory, tickers24h, pool } from './binance.js';
+import { MAJORS, TREND, trendIndicators, breakoutSignal, simulateTrend } from './tendencia.js';
+import { robotSvg } from './robot.js';
+import { drawTrendChart, drawEquity, gaugeSvg } from './chart.js';
 
-// ---------- Almacenamiento local (seguro ante modo privado) ----------
+// ---------------- Preferencias (guardadas solo en este teléfono) ----------------
 const store = {
-  get(k, def) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; } },
+  get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
-const DEFAULT_SETTINGS = {
-  capital: 1000, riskPct: 1, minRR: 2, maxDailyLossPct: 3, maxExposurePct: 20, feePct: 0.1,
-  topN: 25, liveTfs: ['15m', '1h', '4h'], autoRefreshMin: 5, notify: false, minQualityNotify: 'media', watch: '', exclude: 'SOXLB',
-};
-let settings = { ...DEFAULT_SETTINGS, ...store.get('settings', {}) };
-const state = { scan: null, source: '', history: [], scanning: false, progress: '', filter: { action: 'accion', tf: 'todas', quality: 'todas' } };
+let prefs = { capital: 50, riskPct: 1.5, botUser: '', ...store.get('prefs2', {}) };
 
-// ---------- Utilidades ----------
-const $ = (s, el = document) => el.querySelector(s);
+// ---------------- Utilidades ----------------
+const $ = (s) => document.querySelector(s);
 const view = $('#view');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const fmt = (x) => (x == null || isNaN(x) ? '–' : x >= 1000 ? x.toLocaleString('es-CL', { maximumFractionDigits: 2 }) : x >= 1 ? x.toFixed(4).replace(/0+$/, '').replace(/\.$/, '') : x.toPrecision(4));
-const pct = (x, d = 2) => (x == null || isNaN(x) ? '–' : (x > 0 ? '+' : '') + x.toFixed(d) + '%');
-const usd = (x) => (x == null ? '–' : x.toLocaleString('es-CL', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }));
-const time = (t) => new Date(t).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-const ago = (t) => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'ahora' : m < 60 ? `hace ${m} min` : m < 1440 ? `hace ${Math.round(m / 60)} h` : `hace ${Math.round(m / 1440)} d`; };
-const qRank = { baja: 0, media: 1, alta: 2 };
-const binanceUrl = (s) => `https://www.binance.com/es/trade/${s.replace(/USDT$/, '_USDT')}?type=spot`;
-const actionBadge = (s) => `<span class="badge b-${s.action}">${s.action}</span>${s.caution ? ' <span class="badge b-PRECAUCION">PRECAUCIÓN</span>' : ''}`;
-const trendTxt = (t) => ({ alcista: '<span class="up">alcista ▲</span>', bajista: '<span class="down">bajista ▼</span>', lateral: '<span class="muted">lateral ▬</span>' }[t] || '<span class="muted">n/d</span>');
-const setStatus = (t) => ($('#status').innerHTML = t);
-const DISCLAIMER = '<p class="note">Herramienta de análisis técnico, no asesoría financiera. Las señales no garantizan ganancias: usa siempre Stop Loss y arriesga solo lo que puedes perder. La “puntuación técnica” cuenta indicadores a favor; no es una probabilidad de acierto.</p>';
+const fmt = (x) => (x == null || isNaN(x) ? '–' : x >= 1000 ? x.toLocaleString('es-CL', { maximumFractionDigits: 0 }) : x >= 100 ? x.toLocaleString('es-CL', { maximumFractionDigits: 2 }) : x >= 1 ? x.toLocaleString('es-CL', { maximumFractionDigits: 4 }) : x.toPrecision(4));
+const pct = (x, d = 1) => (x == null || isNaN(x) ? '–' : `${x > 0 ? '+' : ''}${x.toFixed(d)}%`);
+const date = (t) => new Date(t).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: '2-digit' });
+const ago = (t) => { const m = Math.round((Date.now() - t) / 6e4); return m < 1 ? 'ahora' : m < 60 ? `hace ${m} min` : `hace ${Math.round(m / 60)} h`; };
+const name = (s) => s.replace(/USDT$/, '');
+const COLORS = ['#f7931a', '#627eea', '#f3ba2f', '#14f195', '#23292f', '#c2a633', '#0033ad', '#ef0027', '#2a5ada', '#e84142', '#e6007a', '#345d9d', '#0ac18e', '#00c08b', '#ff007a', '#2e3148', '#14b6e7', '#3ab83a', '#06d6a0', '#4da2ff'];
+const coinBadge = (s) => `<div class="coin" style="background:${COLORS[MAJORS.indexOf(s) % COLORS.length] || '#475569'}">${esc(name(s).slice(0, 4))}</div>`;
+const binanceUrl = (s) => `https://www.binance.com/es/trade/${name(s)}_USDT?type=spot`;
+const STATUS = {
+  ruptura: { label: 'RUPTURA HOY', cls: 'p-ruptura' },
+  cerca: { label: 'CERCA', cls: 'p-cerca' },
+  tendencia: { label: 'EN TENDENCIA', cls: 'p-tendencia' },
+  fuera: { label: 'BAJISTA', cls: 'p-fuera' },
+};
+const DISCLAIMER = '<p class="disclaimer">Eintes Robot es una herramienta de análisis, no asesoría financiera. Resultados pasados no garantizan resultados futuros. Usa siempre stop y solo dinero que puedas perder.</p>';
+function toast(msg) { const d = document.createElement('div'); d.className = 'toast card'; d.textContent = msg; document.body.appendChild(d); setTimeout(() => d.remove(), 3500); }
 
-// ---------- Datos ----------
-async function loadScannerData() {
-  try {
-    const [s, h] = await Promise.all([
-      fetch('data/signals.json', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)),
-      fetch('data/history.json', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : [])),
-    ]);
-    state.history = Array.isArray(h) ? h : [];
-    if (s && s.generatedAt) { state.scan = s; state.source = 'escáner automático'; }
-  } catch {}
-}
+// ---------------- Datos del mercado ----------------
+const state = { market: null, loading: false, at: 0 };
 
-async function liveScan() {
-  if (state.scanning) return;
-  state.scanning = true;
-  if (!state.scan) render();
-  const prevKeys = new Set((state.scan?.signals || []).filter(isActionable).map(sigKey));
+async function loadMarket(force = false) {
+  if (state.loading) return;
+  if (!force && state.market && Date.now() - state.at < 5 * 60e3) return;
+  state.loading = true; setStatus('<span class="spin"></span>');
   try {
-    const watch = settings.watch.split(/[\s,]+/).filter(Boolean).map((s) => s.toUpperCase()).map((s) => (s.endsWith('USDT') ? s : s + 'USDT'));
-    const r = await runScan({
-      topN: settings.topN, extraSymbols: watch, exclude: (settings.exclude || '').split(/[\s,]+/).filter(Boolean), timeframes: settings.liveTfs, minRR: settings.minRR,
-      onProgress: (d, t) => setStatus(`<span class="spin"></span> ${Math.round(d / t * 100)}%`),
-    });
-    delete r.data;
-    state.scan = r; state.source = 'análisis en vivo';
-    const fresh = r.signals.filter(isActionable).filter((s) => !prevKeys.has(sigKey(s)) && qRank[s.quality] >= qRank[settings.minQualityNotify]);
-    notifyNew(fresh);
+    const [tick] = await Promise.all([tickers24h()]);
+    const t = Object.fromEntries(tick.filter((x) => MAJORS.includes(x.symbol)).map((x) => [x.symbol, x]));
+    const rows = [];
+    await pool(MAJORS, async (s) => {
+      const c = await klines(s, '1d', 300);
+      if (!c || c.close.length < 210) return;
+      rows.push(analyze(s, c, t[s]));
+    }, 5);
+    rows.sort((a, b) => MAJORS.indexOf(a.symbol) - MAJORS.indexOf(b.symbol));
+    state.market = { rows, at: Date.now() };
+    state.at = Date.now();
   } catch (e) {
-    setStatus('');
     toast('No se pudo conectar con Binance: ' + e.message);
-  } finally {
-    state.scanning = false;
-    updateStatus();
-    render();
-  }
+  } finally { state.loading = false; setStatus(state.at ? ago(state.at) : ''); }
 }
 
-const isActionable = (s) => s.action === 'COMPRA' || s.action === 'VENTA';
-const sigKey = (s) => `${s.symbol}|${s.timeframe}|${s.action}`;
-function updateStatus() { if (state.scan) setStatus(`${ago(state.scan.generatedAt)}`); }
-
-async function notifyNew(list) {
-  if (!settings.notify || !list.length || !('Notification' in window) || Notification.permission !== 'granted') return;
-  const reg = await navigator.serviceWorker?.getRegistration();
-  for (const s of list.slice(0, 5)) {
-    const title = `${s.action === 'COMPRA' ? '🟢' : '🔴'} ${s.action} ${s.symbol} (${s.timeframe})`;
-    const body = `Calidad ${s.quality} · Entrada ${fmt(s.entry)} · SL ${fmt(s.sl)} · TP1 ${fmt(s.tp1)}`;
-    const data = { url: `#/senal/${s.symbol}/${s.timeframe}` };
-    if (reg) reg.showNotification(title, { body, data, icon: 'icon-192.png', tag: sigKey(s) });
-    else new Notification(title, { body });
-  }
+function analyze(symbol, c, tk) {
+  const x = trendIndicators(c);
+  const i = c.close.length - 1;
+  const price = tk ? +tk.lastPrice : c.lastPrice;
+  const nextLevel = Math.max(...c.high.slice(-TREND.len)); // lo que el próximo cierre debe superar
+  const inTrend = x.sma200[i] != null && c.close[i] > x.sma200[i];
+  const sig = breakoutSignal(c);
+  const dist = (nextLevel / price - 1) * 100;
+  const status = sig ? 'ruptura' : inTrend && dist <= 3 ? 'cerca' : inTrend ? 'tendencia' : 'fuera';
+  const atr = x.atr14[i];
+  return { symbol, c, x, price, change: tk ? +tk.priceChangePercent : null, nextLevel, dist, inTrend, sig, status, atr, stopPct: TREND.slAtr * atr / price * 100, sma200: x.sma200[i] };
 }
 
-function toast(msg) {
-  const d = document.createElement('div');
-  d.className = 'danger'; d.style.cssText = 'position:fixed;left:16px;right:16px;bottom:80px;z-index:9';
-  d.textContent = msg; document.body.appendChild(d); setTimeout(() => d.remove(), 5000);
+function sizing(stopPct) {
+  const risk = prefs.capital * prefs.riskPct / 100;
+  let amount = risk / (stopPct / 100);
+  const min = Math.max(6, 5.75 / (1 - stopPct / 100));
+  const raised = amount < min; amount = Math.max(amount, min);
+  return { amount, risk: amount * stopPct / 100, riskPct: amount * stopPct / prefs.capital, raised, enough: amount <= prefs.capital };
 }
 
-// ---------- Componentes ----------
-function signalCard(s) {
-  const act = isActionable(s);
-  return `<div class="card sig ${s.action} ${s.caution ? 'caution' : ''}" data-go="#/senal/${s.symbol}/${s.timeframe}">
-    <div class="row between"><div class="row"><b>${esc(s.symbol.replace(/USDT$/, ''))}</b><span class="muted small">/USDT · ${s.timeframe}</span></div>
-      <div>${actionBadge(s)}</div></div>
-    <div class="row between small" style="margin-top:4px"><span class="mono">${fmt(s.currentPrice ?? s.price)} <span class="${s.change24h >= 0 ? 'up' : 'down'}">${pct(s.change24h)}</span></span>
-      <span><span class="badge q-${s.quality}">calidad ${s.quality}</span> <span class="muted">${s.score}/10</span></span></div>
-    ${act ? `<div class="levels mono"><div>Entrada<b>${fmt(s.entry)}</b></div><div class="down">SL<b>${fmt(s.sl)}</b></div><div class="up">TP1<b>${fmt(s.tp1)}</b></div><div class="up">TP2<b>${fmt(s.tp2)}</b></div></div>
-    <div class="small muted" style="margin-top:6px">R/B ${s.rr1.toFixed(1)} · ${s.rr2.toFixed(1)} · ${esc(s.reasons[0] || '')}</div>`
-    : `<div class="small muted" style="margin-top:6px">${esc(s.reasons[0] || '')}</div>`}
-  </div>`;
+// ---------------- Componentes ----------------
+const setStatus = (h) => ($('#status').innerHTML = h);
+function brand() {
+  $('#brand').innerHTML = `${robotSvg(34, 'feliz', 'hb')}<div><b>EINTES ROBOT</b><small>Ruptura 55 · diario</small></div>`;
+}
+function nextReview() {
+  const n = Date.now(), next = Math.ceil(n / 864e5) * 864e5; const m = Math.round((next - n) / 6e4);
+  return `${Math.floor(m / 60)} h ${m % 60} min`;
+}
+function rowItem(r) {
+  const st = STATUS[r.status];
+  const sub = r.status === 'ruptura' ? `Rompió ${fmt(r.sig.breakoutLevel)} · stop −${r.stopPct.toFixed(1)}%`
+    : r.status === 'fuera' ? `Bajo su media de 200 (${pct((r.price / r.sma200 - 1) * 100)})`
+    : r.dist <= 0 ? `Ya supera ${fmt(r.nextLevel)}: falta confirmar al cierre (21:00)`
+    : `Le falta ${r.dist.toFixed(1)}% para romper ${fmt(r.nextLevel)}`;
+  return `<div class="item" data-go="#/moneda/${r.symbol}">${coinBadge(r.symbol)}
+    <div class="grow"><div class="row between"><b>${name(r.symbol)}</b><span class="mono">${fmt(r.price)}</span></div>
+    <div class="row between small"><span class="muted">${sub}</span><span class="${r.change >= 0 ? 'up' : 'down'} mono">${pct(r.change)}</span></div></div>
+    <span class="pill ${st.cls}">${st.label}</span></div>`;
 }
 
-function marketCard(m) {
-  if (!m) return '';
-  const col = { alcista: 'var(--buy)', bajista: 'var(--sell)', mixto: 'var(--warn)' }[m.mood] || 'var(--wait)';
-  const txt = { alcista: 'La mayoría de las monedas sube. Las compras tienen el viento a favor.', bajista: 'La mayoría de las monedas baja. Mayor riesgo para comprar: sé selectivo.', mixto: 'Mercado sin dirección clara. Exige más confirmación.' }[m.mood] || '';
-  return `<div class="card"><div class="mood"><span class="dot" style="background:${col}"></span><div><b>Mercado ${esc(m.mood)}</b>
-    <div class="small muted">${m.breadth != null ? m.breadth.toFixed(0) + '% de las principales monedas sobre su EMA 50 (4h)' : ''}</div></div></div>
-    <div class="small" style="margin-top:6px">${txt}</div></div>
-    <div class="grid2">${m.majors.map((x) => `<div class="card" data-go="#/senal/${x.symbol}/4h" style="cursor:pointer">
-      <div class="muted small">${x.symbol.replace('USDT', '')}</div><div class="big mono">${fmt(x.price)}</div>
-      <div class="small ${x.change24h >= 0 ? 'up' : 'down'}">${pct(x.change24h)} 24h</div>
-      <div class="small">4h ${trendTxt(x.trend4h)} · 1d ${trendTxt(x.trend1d)}</div></div>`).join('')}</div>`;
-}
-
-// ---------- Vistas ----------
+// ---------------- Vistas ----------------
 function vInicio() {
-  const s = state.scan;
-  if (!s) return `<div class="empty">${state.scanning ? '<span class="spin"></span> Analizando el mercado…' : 'Sin datos. Toca ↻ para analizar.'}</div>`;
-  const act = s.signals.filter(isActionable).sort((a, b) => qRank[b.quality] - qRank[a.quality] || b.score - a.score);
-  const buys = act.filter((x) => x.action === 'COMPRA'), sells = act.filter((x) => x.action === 'VENTA');
-  const dl = dailyLossStatus(store.get('trades', []), settings.capital, settings.maxDailyLossPct);
-  const traders = rankTraders().slice(0, 3);
-  const hist = state.history.slice(0, 3);
+  const m = state.market;
+  if (!m) return loadingView('Estoy revisando las 20 criptos principales…');
+  const rows = m.rows, br = rows.filter((r) => r.status === 'ruptura'), near = rows.filter((r) => r.status === 'cerca').sort((a, b) => a.dist - b.dist);
+  const trendN = rows.filter((r) => r.inTrend).length, trendPct = trendN / rows.length * 100;
+  const btc = rows.find((r) => r.symbol === 'BTCUSDT'), eth = rows.find((r) => r.symbol === 'ETHUSDT');
+  let mood = 'feliz', title, text;
+  if (br.length) { mood = 'alerta'; title = `¡Detecté ${br.length} ruptura${br.length > 1 ? 's' : ''} hoy!`; text = 'Si tu bot está encendido, ya te envió la propuesta a Telegram. Revisa el detalle antes de decidir.'; }
+  else if (trendN <= 5) { mood = 'calma'; title = 'Mercado bajista: toca esperar'; text = `Solo ${trendN} de ${rows.length} criptos están en tendencia alcista. No comprar también protege tu dinero.`; }
+  else if (near.length) { title = 'Sin rupturas hoy'; text = `${near.length} cripto${near.length > 1 ? 's están' : ' está'} a menos de 3% de romper. Las vigilo cada noche.`; }
+  else { title = 'Todo tranquilo'; text = 'No hay rupturas ni criptos cerca de romper. Vuelvo a revisar después del cierre diario.'; }
+  const regime = trendPct >= 60 ? ['Alcista', 'up'] : trendPct <= 30 ? ['Bajista', 'down'] : ['Mixto', ''];
+  const tg = prefs.botUser ? `https://t.me/${prefs.botUser.replace(/^@/, '')}` : null;
   return `
-    ${dl.blocked ? `<div class="danger"><b>Límite de pérdida diaria alcanzado</b> (${usd(dl.pnl)}). Hoy no se recomienda abrir nuevas operaciones.</div>` : ''}
-    ${marketCard(s.market)}
-    <h2>Mejores oportunidades</h2>
-    ${act.slice(0, 3).map(signalCard).join('') || '<div class="card muted small">Ninguna señal cumple todos los filtros ahora. Esperar también es una decisión.</div>'}
+    <section class="hero">${robotSvg(84, mood, 'hero')}<div class="bubble"><b>${esc(title)}</b><span>${esc(text)}</span></div></section>
+    <div class="card"><div class="gauge">${gaugeSvg(trendPct)}<div><div class="small muted">Estado del mercado</div><div class="big ${regime[1]}">${regime[0]}</div>
+      <div class="small muted">${trendN} de ${rows.length} criptos sobre su media de 200 días</div></div></div></div>
+    <div class="grid2">${[btc, eth].filter(Boolean).map((r) => `<div class="card tap" data-go="#/moneda/${r.symbol}">
+      <div class="row between"><span class="small muted">${name(r.symbol)}</span><span class="pill ${STATUS[r.status].cls}">${STATUS[r.status].label}</span></div>
+      <div class="big mono" style="margin-top:6px">${fmt(r.price)}</div><div class="small ${r.change >= 0 ? 'up' : 'down'} mono">${pct(r.change)} 24h</div></div>`).join('')}</div>
+    <h2>Rupturas de hoy <a href="#/mercado?f=ruptura">ver</a></h2>
+    <div class="card list">${br.map(rowItem).join('') || '<div class="muted small">Ninguna por ahora. Las rupturas son pocas: entre 3 y 5 al mes entre las 20 criptos.</div>'}</div>
+    <h2>Cerca de romper <a href="#/mercado?f=cerca">todas</a></h2>
+    <div class="card list">${near.slice(0, 5).map(rowItem).join('') || '<div class="muted small">Ninguna cripto está a menos de 3% de su máximo de 55 días.</div>'}</div>
+    <div class="card"><div class="row between"><div><div class="small muted">Próxima revisión del robot</div><div class="big">${nextReview()}</div><div class="tiny muted">Cierre diario: 21:00 en Chile</div></div>${robotSvg(54, 'calma', 'nr')}</div>
+      ${tg ? `<a class="btn block" style="margin-top:12px" href="${tg}" target="_blank" rel="noopener">Abrir mi robot en Telegram</a>` : `<a class="btn ghost block" style="margin-top:12px" href="#/robot">Conectar mi bot de Telegram</a>`}</div>
+    <p class="tiny muted" style="text-align:center">Datos públicos de Binance · actualizado ${ago(m.at)}</p>${DISCLAIMER}`;
+}
+
+function vMercado(params) {
+  const m = state.market;
+  if (!m) return loadingView('Cargando mercado…');
+  const f = params.get('f') || 'todas';
+  const order = { ruptura: 0, cerca: 1, tendencia: 2, fuera: 3 };
+  let rows = m.rows.slice().sort((a, b) => order[a.status] - order[b.status] || a.dist - b.dist);
+  if (f !== 'todas') rows = rows.filter((r) => r.status === f);
+  const chip = (v, l) => `<a class="chip ${f === v ? 'on' : ''}" href="#/mercado?f=${v}" style="text-decoration:none">${l}</a>`;
+  const cnt = (s) => m.rows.filter((r) => r.status === s).length;
+  return `<div class="chips">${chip('todas', `Todas (${m.rows.length})`)}${chip('ruptura', `Rupturas (${cnt('ruptura')})`)}${chip('cerca', `Cerca (${cnt('cerca')})`)}${chip('tendencia', `En tendencia (${cnt('tendencia')})`)}${chip('fuera', `Bajistas (${cnt('fuera')})`)}</div>
+    <div class="card list">${rows.map(rowItem).join('') || '<div class="muted small">No hay criptos en esta categoría ahora.</div>'}</div>
+    <div class="card small"><b>Cómo leerlo</b><div class="muted" style="margin-top:6px">
+    <span class="pill p-ruptura">RUPTURA HOY</span> cerró sobre su máximo de 55 días en tendencia alcista: el robot propone comprar.<br><br>
+    <span class="pill p-cerca">CERCA</span> en tendencia y a menos de 3% de romper.<br><br>
+    <span class="pill p-tendencia">EN TENDENCIA</span> sobre su media de 200 días, todavía lejos del máximo.<br><br>
+    <span class="pill p-fuera">BAJISTA</span> bajo su media de 200 días: el robot no compra.</div></div>`;
+}
+
+function vMoneda(symbol) {
+  const m = state.market;
+  if (!m) return loadingView('Cargando…');
+  const r = m.rows.find((x) => x.symbol === symbol);
+  if (!r) return '<div class="card">Moneda no disponible.</div>';
+  const st = STATUS[r.status], z = sizing(r.stopPct);
+  const stop = r.price * (1 - r.stopPct / 100);
+  const sim = simulateTrend(r.c);
+  const breaks = new Set(sim.trades.map((t) => r.c.time.indexOf(t.entryTime) - 1).filter((i) => i >= 0));
+  if (sim.open) breaks.add(r.c.time.indexOf(sim.open.entryTime) - 1);
+  r.x.breakIdx = breaks;
+  const exp = r.status === 'ruptura' ? `Hoy ${name(symbol)} cerró en ${fmt(r.sig.close)}, por encima de su máximo de 55 días (${fmt(r.sig.breakoutLevel)}), y está sobre su media de 200. Es la señal que busca la estrategia.`
+    : r.status === 'fuera' ? `${name(symbol)} está bajo su media de 200 días: tendencia de fondo bajista. El robot no compra aunque haya rebotes.`
+    : r.dist <= 0 ? `${name(symbol)} ya está sobre su máximo de 55 días (${fmt(r.nextLevel)}). Para que sea señal tiene que CERRAR el día por encima (21:00 en Chile).`
+    : `Para dar señal, ${name(symbol)} debe cerrar el día sobre ${fmt(r.nextLevel)} (le falta ${r.dist.toFixed(1)}%), manteniéndose sobre su media de 200.`;
+  setTimeout(() => {
+    const cv = $('#chart');
+    if (cv) drawTrendChart(cv, r.c, r.x, [r.status === 'ruptura' ? { price: r.sig.breakoutLevel, label: 'Roto ✓', color: '#16a34a' } : { price: r.nextLevel, label: 'Romper', color: '#0ea5b7' }, ...(r.inTrend ? [{ price: stop, label: 'Stop', color: '#ef4444' }] : [])]);
+  });
+  return `<div class="row between" style="margin-bottom:12px"><div class="row">${coinBadge(symbol)}<div><div class="big">${name(symbol)}<span class="muted small"> /USDT</span></div>
+    <div class="mono">${fmt(r.price)} <span class="${r.change >= 0 ? 'up' : 'down'} small">${pct(r.change)}</span></div></div></div><span class="pill ${st.cls}">${st.label}</span></div>
+    <div class="card" style="padding:10px"><canvas class="chart" id="chart"></canvas>
+      <div class="legend"><span><i style="background:#22d3ee"></i>Máximo 55 días</span><span><i style="background:#f59e0b"></i>Media 200</span><span><i style="background:#22c55e"></i>▲ Rupturas pasadas</span></div></div>
+    <div class="callout info">${esc(exp)}</div>
     <div class="grid2">
-      <a class="card" href="#/senales?a=COMPRA" style="text-decoration:none;color:inherit"><div class="muted small">Señales de compra</div><div class="big up">${buys.length}</div></a>
-      <a class="card" href="#/senales?a=VENTA" style="text-decoration:none;color:inherit"><div class="muted small">Señales de venta</div><div class="big down">${sells.length}</div></a>
+      <div class="stat"><div class="k">${r.status === 'ruptura' ? 'Nivel que rompió' : 'Nivel a superar'}</div><div class="v mono">${fmt(r.status === 'ruptura' ? r.sig.breakoutLevel : r.nextLevel)}</div></div>
+      <div class="stat"><div class="k">Distancia</div><div class="v mono">${r.status === 'ruptura' ? 'Rompió ✓' : r.dist <= 0 ? 'Encima ✓' : pct(r.dist)}</div></div>
+      <div class="stat"><div class="k">Media 200 días</div><div class="v mono">${fmt(r.sma200)}</div></div>
+      <div class="stat"><div class="k">Stop inicial si entra hoy</div><div class="v mono down">−${r.stopPct.toFixed(1)}%</div></div>
     </div>
-    <h2>Alertas activas</h2>
-    ${s.events.slice(0, 6).map((e) => `<div class="card small" data-go="#/senal/${e.symbol}/${e.timeframe === '24h' ? '1h' : e.timeframe}" style="cursor:pointer">
-      <b>${e.type === 'caida' ? '🔻' : e.type === 'subida' ? '🔺' : e.type === 'volumen' ? '📊' : '🔄'} ${esc(e.symbol)}</b> <span class="muted">${e.timeframe}</span><br>${esc(e.text)}</div>`).join('') || '<div class="card muted small">Sin eventos destacados.</div>'}
-    <h2>Ranking de traders</h2>
-    ${traders.length ? traders.map((t, k) => `<div class="card row between small"><span>${k + 1}. <b>${esc(t.name)}</b></span><span>Puntaje <b>${t.score}</b>/100</span></div>`).join('') : '<a class="card small" href="#/traders" style="display:block">Agrega traders de Binance Copy Trading para compararlos →</a>'}
-    <h2>Historial reciente</h2>
-    ${hist.length ? hist.map(histRow).join('') : '<div class="card muted small">El historial se llena cuando el escáner automático envía alertas.</div>'}
-    <p class="small muted">Fuente: ${esc(state.source)} · ${time(s.generatedAt)} · ${s.pairs.length} pares analizados</p>
-    ${DISCLAIMER}`;
+    <h2>Con tu capital (${prefs.capital} USDT · riesgo ${prefs.riskPct}%)</h2>
+    <div class="card"><div class="grid2">
+      <div class="stat"><div class="k">Comprarías</div><div class="v mono">${z.amount.toFixed(2)} USDT</div></div>
+      <div class="stat"><div class="k">Pérdida si toca el stop</div><div class="v mono down">${z.risk.toFixed(2)} USDT</div></div></div>
+      ${z.raised ? `<div class="callout warn">Subido al mínimo de Binance: el riesgo real es ${z.riskPct.toFixed(1)}% de tu capital.</div>` : ''}
+      ${!z.enough ? '<div class="callout warn">Tu capital no alcanza para esta operación.</div>' : ''}
+      <p class="note">Stop en ${fmt(stop)}. Sin objetivo fijo: el stop sube cada día con el precio (máximo alcanzado − 3,5 × volatilidad) y nunca baja.</p></div>
+    <h2>Historial de la estrategia en ${name(symbol)}</h2>
+    <div class="card"><div class="grid3">
+      <div class="stat"><div class="k">Operaciones</div><div class="v">${sim.trades.length}</div></div>
+      <div class="stat"><div class="k">Ganadoras</div><div class="v">${sim.trades.length ? Math.round(sim.trades.filter((t) => t.r > 0).length / sim.trades.length * 100) : 0}%</div></div>
+      <div class="stat"><div class="k">Resultado</div><div class="v ${sim.trades.reduce((s, t) => s + t.r, 0) >= 0 ? 'up' : 'down'}">${(sim.trades.reduce((s, t) => s + t.r, 0)).toFixed(1)}R</div></div></div>
+      <p class="note">Últimos ~3 meses (los días anteriores se usan para calcular la media de 200). Para varios años usa “Probar”.</p>
+      <a class="btn ghost block" href="#/probar?s=${symbol}">Probar 5 años en ${name(symbol)}</a></div>
+    <a class="btn block" href="${binanceUrl(symbol)}" target="_blank" rel="noopener" style="margin-top:6px">Ver ${name(symbol)} en Binance</a>${DISCLAIMER}`;
 }
 
-function vSenales(params) {
-  const s = state.scan;
-  if (!s) return '<div class="empty">Sin datos todavía.</div>';
-  const f = state.filter;
-  if (params.get('a')) f.action = params.get('a');
-  let list = s.signals.slice();
-  if (f.action === 'accion') list = list.filter(isActionable);
-  else if (f.action !== 'todas') list = list.filter((x) => x.action === f.action);
-  if (f.tf !== 'todas') list = list.filter((x) => x.timeframe === f.tf);
-  if (f.quality !== 'todas') list = list.filter((x) => qRank[x.quality] >= qRank[f.quality]);
-  list.sort((a, b) => (isActionable(b) - isActionable(a)) || qRank[b.quality] - qRank[a.quality] || b.score - a.score);
-  const chip = (group, val, label) => `<button class="chip ${f[group] === val ? 'on' : ''}" data-f="${group}" data-v="${val}">${label}</button>`;
-  const tfs = [...new Set(s.signals.map((x) => x.timeframe))];
-  return `
-    <div class="chips">${chip('action', 'accion', 'Compra y venta')}${chip('action', 'COMPRA', 'Compra')}${chip('action', 'VENTA', 'Venta')}${chip('action', 'todas', 'Todas')}</div>
-    <div class="chips">${chip('tf', 'todas', 'Todas')}${tfs.map((t) => chip('tf', t, t)).join('')}</div>
-    <div class="chips">${chip('quality', 'todas', 'Cualquier calidad')}${chip('quality', 'media', 'Media o alta')}${chip('quality', 'alta', 'Solo alta')}</div>
-    ${list.map(signalCard).join('') || '<div class="empty">No hay señales con estos filtros.</div>'}
-    <p class="small muted">Las señales de VENTA en spot significan: vender lo que tienes o no comprar. Abrir posiciones en corto requiere futuros (alto riesgo).</p>`;
+function vProbar(params) {
+  const s = params.get('s') || store.get('probarSym', 'TODAS');
+  const years = +(params.get('y') || store.get('probarY', 5));
+  return `<section class="hero">${robotSvg(70, 'feliz', 'pb')}<div class="bubble"><b>Laboratorio</b><span>Prueba la estrategia con años de datos reales, como si el robot hubiera operado.</span></div></section>
+    <div class="card"><label class="f">Cripto<select id="pSym"><option value="TODAS" ${s === 'TODAS' ? 'selected' : ''}>Las 20 criptos (como el robot)</option>${MAJORS.map((m) => `<option value="${m}" ${m === s ? 'selected' : ''}>${name(m)}</option>`).join('')}</select></label>
+    <label class="f">Periodo<select id="pY">${[2, 3, 5].map((y) => `<option value="${y}" ${y === years ? 'selected' : ''}>Últimos ${y} años</option>`).join('')}</select></label>
+    <button class="btn block" id="pRun">Probar estrategia</button>
+    <p class="note">Mismas reglas que el robot: entra al día siguiente de la ruptura, stop inicial 2,5 × volatilidad, stop que sube y comisión 0,1% por lado. Resultado en % con tu riesgo de ${prefs.riskPct}% por operación.</p></div>
+    <div id="pOut"></div>`;
 }
 
-async function vDetalle(symbol, tf) {
-  view.innerHTML = `<div class="empty"><span class="spin"></span> Analizando ${esc(symbol)} ${tf}…</div>`;
-  let c, htf;
+async function runProbar() {
+  const s = $('#pSym').value, y = +$('#pY').value, out = $('#pOut');
+  store.set('probarSym', s); store.set('probarY', y);
+  const syms = s === 'TODAS' ? MAJORS : [s];
+  out.innerHTML = loadingView(`Descargando ${y} años de datos${syms.length > 1 ? ` de ${syms.length} criptos` : ''}…`);
   try {
-    [c, htf] = await Promise.all([klines(symbol, tf, 300), HIGHER_TF[tf] !== tf ? klines(symbol, HIGHER_TF[tf], 300) : null]);
-  } catch (e) { return `<div class="danger">No se pudo leer Binance: ${esc(e.message)}</div>`; }
-  const { signal: s, ind } = analyzeSeries(c, { symbol, timeframe: tf, opts: { minRR: settings.minRR } }, htf || c);
-  const act = isActionable(s);
-  const dl = dailyLossStatus(store.get('trades', []), settings.capital, settings.maxDailyLossPct);
-  const ps = act ? positionSize({ capital: settings.capital, riskPct: settings.riskPct, entry: s.entry, sl: s.sl, maxExposurePct: settings.maxExposurePct, feePct: settings.feePct }) : null;
-  const tfChips = TIMEFRAMES.map((t) => `<a class="chip ${t === tf ? 'on' : ''}" href="#/senal/${symbol}/${t}" style="text-decoration:none">${t}</a>`).join('');
-  const html = `
-    <div class="row between"><div><div class="big">${esc(symbol.replace('USDT', ''))}<span class="muted small">/USDT</span></div>
-      <div class="mono">${fmt(s.currentPrice)}</div></div><div style="text-align:right">${actionBadge(s)}<br><span class="badge q-${s.quality}" style="margin-top:4px">calidad ${s.quality}</span></div></div>
-    <div class="chips" style="margin-top:10px">${tfChips}</div>
-    <div class="card" style="padding:8px"><canvas class="chart" id="chart"></canvas>
-      <div class="legend"><span><i style="background:#4c8dff"></i>EMA 21</span><span><i style="background:#b36bff"></i>EMA 50</span><span><i style="background:#ff9f43"></i>SMA 200</span><span><i style="background:var(--warn)"></i>RSI</span></div></div>
-    ${dl.blocked && act ? `<div class="danger">Alcanzaste tu límite de pérdida diaria. La app recomienda no abrir operaciones hoy.</div>` : ''}
-    ${s.warnings.map((w) => `<div class="warn">⚠️ ${esc(w)}</div>`).join('')}
-    <div class="card"><table class="mono">
-      <tr><td>1. Criptomoneda</td><td>${esc(symbol)}</td></tr>
-      <tr><td>2. Acción</td><td>${actionBadge(s)}${s.wouldBe ? ` <span class="small muted">(sería ${s.wouldBe})</span>` : ''}</td></tr>
-      <tr><td>3. Precio actual</td><td>${fmt(s.currentPrice)}</td></tr>
-      <tr><td>4. Entrada sugerida</td><td>${act ? fmt(s.entry) : '–'}</td></tr>
-      <tr><td>5. Stop Loss</td><td class="down">${act ? `${fmt(s.sl)} (${s.riskPct.toFixed(2)}%)` : '–'}</td></tr>
-      <tr><td>6. Take Profit 1</td><td class="up">${act ? `${fmt(s.tp1)} (${pct((s.tp1 - s.entry) / s.entry * 100)})` : '–'}</td></tr>
-      <tr><td>7. Take Profit 2</td><td class="up">${act ? `${fmt(s.tp2)} (${pct((s.tp2 - s.entry) / s.entry * 100)})` : '–'}</td></tr>
-      <tr><td>8. Riesgo/beneficio</td><td>${act ? `1 : ${s.rr1.toFixed(1)} / 1 : ${s.rr2.toFixed(1)}` : '–'}</td></tr>
-      <tr><td>9. Temporalidad</td><td>${tf} (confirmada con ${HIGHER_TF[tf]}: ${s.htfTrend})</td></tr>
-      <tr><td>11. Puntuación técnica</td><td>${s.score}/10 · calidad ${s.quality}</td></tr>
-      <tr><td>12. Generada</td><td>${time(s.generatedAt)} <span class="muted small">(vela cerrada ${time(s.candleTime)})</span></td></tr>
-    </table></div>
-    <h2>10. Justificación técnica</h2>
-    <div class="card"><ul class="reasons">${s.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>
-      <div class="small muted" style="margin-top:8px">RSI ${s.rsi?.toFixed(0)} · ATR ${fmt(s.atr)} · Volumen ${s.volRatio?.toFixed(1)}× promedio · Tendencia ${s.trend} · Soporte ${fmt(s.support)} · Resistencia ${fmt(s.resistance)}</div></div>
-    ${ps ? `<h2>Tamaño de posición sugerido</h2><div class="card">
-      <div class="grid2 mono"><div><div class="muted small">${s.action === 'COMPRA' ? 'Comprar' : 'Vender (si tienes)'}</div><b>${ps.qty.toPrecision(5)} ${esc(symbol.replace('USDT', ''))}</b></div><div><div class="muted small">Monto</div><b>${usd(ps.notional)}</b></div>
-      <div><div class="muted small">Pérdida si toca SL</div><b class="down">${usd(ps.riskAmount)}</b></div><div><div class="muted small">% del capital</div><b>${ps.riskPctReal.toFixed(2)}%</b></div></div>
-      ${ps.capped ? `<div class="warn">Limitado por tu exposición máxima por moneda (${settings.maxExposurePct}%).</div>` : ''}
-      ${ps.belowMin ? `<div class="warn">El monto es menor al mínimo de Binance (~5 USDT).</div>` : ''}
-      <p class="note">Calculado con capital ${usd(settings.capital)}, riesgo ${settings.riskPct}% por operación y comisión ${settings.feePct}% por lado. Cámbialo en Más → Ajustes.</p></div>` : ''}
-    ${s.events.length ? `<h2>Eventos</h2>${s.events.map((e) => `<div class="card small">${esc(e.text)}</div>`).join('')}` : ''}
-    <a class="btn" href="${binanceUrl(symbol)}" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;background:var(--accent);color:#fff;padding:12px;border-radius:10px">Abrir ${esc(symbol)} en Binance (operar a mano)</a>
-    ${DISCLAIMER}`;
-  view.innerHTML = html;
-  requestAnimationFrame(() => drawChart($('#chart'), c, ind, s));
-  return null;
+    const all = [], bh = [];
+    let done = 0;
+    await pool(syms, async (sym) => {
+      const c = await klinesHistory(sym, '1d', y * 365 + 210);
+      const r = simulateTrend(c);
+      r.trades.forEach((t) => all.push({ ...t, symbol: sym }));
+      if (c.close.length > 215) bh.push((c.close.at(-1) / c.close[210] - 1) * 100);
+      done++; const p = out.querySelector('.prog'); if (p) p.textContent = `${done}/${syms.length}`;
+    }, 4);
+    all.sort((a, b) => a.exitTime - b.exitTime);
+    const wins = all.filter((t) => t.r > 0), sumR = all.reduce((s2, t) => s2 + t.r, 0);
+    const gw = wins.reduce((s2, t) => s2 + t.r, 0), gl = -all.filter((t) => t.r <= 0).reduce((s2, t) => s2 + t.r, 0);
+    let cum = 0, peak = 0, dd = 0, streak = 0, ms = 0; const pts = [{ v: 0 }];
+    for (const t of all) { cum += t.r * prefs.riskPct; peak = Math.max(peak, cum); dd = Math.max(dd, peak - cum); streak = t.r <= 0 ? streak + 1 : 0; ms = Math.max(ms, streak); pts.push({ v: cum }); }
+    const best = all.slice().sort((a, b) => b.pct - a.pct)[0];
+    const bhAvg = bh.length ? bh.reduce((a, b) => a + b, 0) / bh.length : null;
+    out.innerHTML = `<div class="card"><div class="row between"><b>${s === 'TODAS' ? 'Las 20 criptos' : name(s)} · ${y} años</b><span class="pill ${sumR > 0 ? 'p-ruptura' : 'p-down'}">${sumR > 0 ? 'POSITIVA' : 'NEGATIVA'}</span></div>
+      <canvas class="eq" id="eq" style="margin:12px 0 4px"></canvas>
+      <div class="grid3">
+        <div class="stat"><div class="k">Operaciones</div><div class="v">${all.length}</div></div>
+        <div class="stat"><div class="k">Ganadoras</div><div class="v">${all.length ? Math.round(wins.length / all.length * 100) : 0}%</div></div>
+        <div class="stat"><div class="k">Factor benef.</div><div class="v">${gl ? (gw / gl).toFixed(2) : '–'}</div></div>
+        <div class="stat"><div class="k">Resultado</div><div class="v ${cum >= 0 ? 'up' : 'down'}">${pct(cum)}</div></div>
+        <div class="stat"><div class="k">Peor caída</div><div class="v down">−${dd.toFixed(1)}%</div></div>
+        <div class="stat"><div class="k">Racha perdedora</div><div class="v">${ms}</div></div></div>
+      <p class="note">Resultado = suma de operaciones arriesgando ${prefs.riskPct}% del capital en cada una (sin interés compuesto)${s === 'TODAS' ? ', como si pudieras tener varias abiertas a la vez' : ''}. ${bhAvg != null ? `Comprar y mantener en el mismo periodo: ${pct(bhAvg)} (promedio).` : ''} ${best ? `Mejor operación: ${name(best.symbol)} ${pct(best.pct)} en ${best.bars} días.` : ''}</p></div>
+      <h2>Últimas operaciones simuladas</h2>
+      <div class="card scroll"><table><tr><th>Cripto</th><th>Entrada</th><th>Días</th><th>Resultado</th></tr>
+      ${all.slice(-15).reverse().map((t) => `<tr><td>${name(t.symbol)}</td><td>${date(t.entryTime)}</td><td>${t.bars}</td><td class="${t.pct >= 0 ? 'up' : 'down'}">${pct(t.pct)}</td></tr>`).join('')}</table></div>${DISCLAIMER}`;
+    requestAnimationFrame(() => drawEquity($('#eq'), pts, cum >= 0 ? '#22c55e' : '#ef4444'));
+  } catch (e) { out.innerHTML = `<div class="callout warn">No se pudo completar: ${esc(e.message)}</div>`; }
 }
 
-function histRow(h) {
-  const col = { TP2: 'up', TP1: 'up', SL: 'down' }[h.status] || 'muted';
-  return `<div class="card small sig ${h.action}" data-go="#/senal/${h.symbol}/${h.timeframe}"><div class="row between">
-    <span><b>${esc(h.symbol)}</b> ${h.timeframe} <span class="badge b-${h.action}">${h.action}</span></span><span class="${col}"><b>${esc(h.status)}</b>${h.resultR != null ? ` (${h.resultR > 0 ? '+' : ''}${h.resultR.toFixed(1)}R)` : ''}</span></div>
-    <div class="muted mono">${time(h.generatedAt)} · E ${fmt(h.entry)} · SL ${fmt(h.sl)} · TP1 ${fmt(h.tp1)} · ${h.quality}</div></div>`;
+function vRobot() {
+  const tg = prefs.botUser ? `https://t.me/${prefs.botUser.replace(/^@/, '')}` : null;
+  return `<section class="hero">${robotSvg(90, 'feliz', 'rb')}<div class="bubble"><b>Hola, soy Eintes Robot</b><span>Busco rupturas de tendencia en las 20 criptos principales y te pido permiso antes de operar.</span></div></section>
+    <h2>Cómo trabajo</h2>
+    <div class="card"><ol class="steps">
+      <li><b>Cada noche a las 21:00</b> (cierre diario) reviso BTC, ETH, SOL y 17 criptos más.</li>
+      <li>Si una <b>supera su máximo de 55 días</b> estando sobre su media de 200, te escribo por Telegram.</li>
+      <li>Tú decides con <b>✅ Sí</b> o <b>❌ No</b>. Sin tu “Sí” no hago nada.</li>
+      <li>Compro y pongo el <b>stop en Binance</b>. Cada noche lo <b>subo</b> si el precio subió; nunca lo bajo.</li>
+      <li>La operación termina cuando el precio toca el stop. Te aviso el resultado.</li></ol></div>
+    <h2>Lo que mostraron las pruebas</h2>
+    <div class="card"><div class="grid2">
+      <div class="stat"><div class="k">Aciertos</div><div class="v">~35%</div></div>
+      <div class="stat"><div class="k">Ganancia media / operación</div><div class="v up">+0,18R</div></div>
+      <div class="stat"><div class="k">Señales al mes</div><div class="v">3 – 5</div></div>
+      <div class="stat"><div class="k">Duración media</div><div class="v">~3 sem.</div></div></div>
+      <p class="note">20 criptos, 2022–2026, con comisiones. Ganó tanto en el periodo alcista (+0,50R por operación) como en el bajista (+0,18R), cuando comprar y mantener perdió −43%. Espera rachas de pérdidas pequeñas: unas pocas ganancias grandes las compensan. R = lo que arriesgas en cada operación.</p></div>
+    <h2>Comandos de Telegram</h2>
+    <div class="card small"><div class="list">
+      <div class="item"><code class="cmd">/estado</code><span class="muted">saldo, operaciones abiertas y resultado</span></div>
+      <div class="item"><code class="cmd">/revisar</code><span class="muted">revisa el mercado ahora</span></div>
+      <div class="item"><code class="cmd">/cerrar</code><span class="muted">vender una operación abierta</span></div>
+      <div class="item"><code class="cmd">/pausa</code><span class="muted">no proponer compras (los stops siguen)</span></div>
+      <div class="item"><code class="cmd">/reanudar</code><span class="muted">volver a proponer</span></div></div>
+      ${tg ? `<a class="btn block" style="margin-top:8px" href="${tg}" target="_blank" rel="noopener">Abrir mi robot en Telegram</a>` : ''}</div>
+    <h2>Mis ajustes</h2>
+    <form class="card" id="prefsForm">
+      <div class="grid2"><label class="f">Capital (USDT)<input name="capital" type="number" step="any" min="1" value="${prefs.capital}"></label>
+      <label class="f">Riesgo por operación (%)<input name="riskPct" type="number" step="0.1" min="0.1" max="5" value="${prefs.riskPct}"></label></div>
+      <label class="f">Usuario de tu bot de Telegram (ej: jhonny_senales_bot)<input name="botUser" value="${esc(prefs.botUser)}" placeholder="sin @"></label>
+      <button class="btn block" type="submit">Guardar</button>
+      <p class="note">Se guardan solo en este teléfono. Usa los mismos valores que el bot (riesgo 1,5% por defecto).</p></form>${DISCLAIMER}`;
 }
 
-function vHistorial() {
-  const h = state.history;
-  const closed = h.filter((x) => ['TP1', 'TP2', 'SL'].includes(x.status));
-  const wins = closed.filter((x) => x.status !== 'SL');
-  const avgR = closed.length ? closed.reduce((a, x) => a + (x.resultR || 0), 0) / closed.length : 0;
-  return `
-    <div class="card"><b>Rendimiento real de las alertas</b>
-      <div class="grid2 mono" style="margin-top:8px"><div><div class="muted small">Cerradas</div><b>${closed.length}</b> <span class="muted small">de ${h.length}</span></div>
-      <div><div class="muted small">Llegaron a TP</div><b>${closed.length ? (wins.length / closed.length * 100).toFixed(0) + '%' : '–'}</b></div>
-      <div><div class="muted small">Resultado medio</div><b class="${avgR >= 0 ? 'up' : 'down'}">${closed.length ? (avgR > 0 ? '+' : '') + avgR.toFixed(2) + 'R' : '–'}</b></div>
-      <div><div class="muted small">Abiertas</div><b>${h.filter((x) => x.status === 'abierta').length}</b></div></div>
-      <p class="note">R = múltiplos del riesgo. +1R significa ganar lo mismo que se arriesgaba. Supuesto: 50% se cierra en TP1 y el resto en TP2 o en el precio de entrada. ${closed.length < 30 ? '<b>Con menos de 30 señales cerradas estas cifras no son estadísticamente confiables.</b>' : ''}</p></div>
-    ${h.map(histRow).join('') || '<div class="empty">Aún no hay historial. El escáner automático lo registra cada vez que envía una alerta.</div>'}`;
-}
+const loadingView = (msg) => `<div class="card" style="text-align:center;padding:28px 16px">${robotSvg(72, 'calma', 'ld')}<div class="muted" style="margin-top:8px"><span class="spin"></span> ${esc(msg)} <span class="prog"></span></div></div><div class="skeleton"></div><div class="skeleton"></div>`;
 
-// ---------- Traders (ranking propio con datos ingresados por ti) ----------
-function scoreTrader(t) {
-  const r30 = +t.roi30 || 0, r90 = +t.roi90 || 0, r180 = t.roi180 === '' || t.roi180 == null ? null : +t.roi180, dd = Math.max(+t.mdd || 0, 1), days = +t.days || 0;
-  const flags = [];
-  const calmar = r90 / dd; // retorno 90d por cada 1% de máximo retroceso
-  let s = Math.max(0, Math.min(calmar / 3, 1)) * 40;
-  const positives = [r30, r90, r180].filter((x) => x != null && x > 0).length, total = [r30, r90, r180].filter((x) => x != null).length;
-  let cons = positives / total;
-  if (r90 > 0 && r30 > r90 * 0.8) { cons *= 0.6; flags.push('Casi toda la ganancia es reciente'); }
-  s += cons * 25;
-  s += Math.min(days / 365, 1) * 20;
-  s += (1 - Math.min(dd / 50, 1)) * 15;
-  if (r30 > 100 || r90 > 300) flags.push('Rentabilidad extraordinaria: probable alto apalancamiento');
-  if (dd > 40) flags.push(`Retroceso máximo alto (${dd}%)`);
-  if (days < 90) flags.push('Historial corto (< 90 días)');
-  if (+t.copiers && +t.copiers < 20) flags.push('Pocos copiadores');
-  // Penalizaciones: un resultado espectacular con mucho riesgo no debe quedar arriba
-  if (r30 > 100 || r90 > 300) s -= 15;
-  if (dd > 40) s -= 15;
-  if (days < 90) s -= 10;
-  return { ...t, score: Math.max(0, Math.round(s)), calmar, flags };
-}
-const rankTraders = () => store.get('traders', []).map(scoreTrader).sort((a, b) => b.score - a.score);
-
-function vTraders() {
-  const list = rankTraders();
-  const favOnly = state.favOnly;
-  const shown = favOnly ? list.filter((t) => t.fav) : list;
-  return `
-    <div class="warn"><b>Importante:</b> Binance no ofrece una API oficial pública para los rankings de Copy Trading, y la app no usa accesos no autorizados. Abre el perfil público del trader en Binance, copia sus cifras aquí y la app calcula un ranking propio ajustado por riesgo. Actualiza las cifras cada semana para seguir su evolución.</div>
-    <a class="btn ghost" href="https://www.binance.com/es/copy-trading" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;padding:10px;border-radius:10px;margin-bottom:10px">Abrir Binance Copy Trading</a>
-    <div class="chips"><button class="chip ${!favOnly ? 'on' : ''}" id="tAll">Todos</button><button class="chip ${favOnly ? 'on' : ''}" id="tFav">★ Favoritos</button></div>
-    ${shown.map((t, k) => `<div class="card"><div class="row between"><div><b>${k + 1}. ${esc(t.name)}</b> ${t.url ? `<a href="${esc(t.url)}" target="_blank" rel="noopener" class="small">perfil</a>` : ''}</div>
-      <div class="row"><b class="big" style="font-size:18px">${t.score}</b><span class="muted small">/100</span><button class="star" data-fav="${esc(t.name)}">${t.fav ? '★' : '☆'}</button></div></div>
-      <div class="levels mono"><div>ROI 30d<b>${pct(+t.roi30, 1)}</b></div><div>ROI 90d<b>${pct(+t.roi90, 1)}</b></div><div>ROI 180d<b>${t.roi180 !== '' ? pct(+t.roi180, 1) : '–'}</b></div><div>Máx. DD<b class="down">${t.mdd}%</b></div></div>
-      <div class="small muted" style="margin-top:6px">${t.days} días operando · retorno/riesgo ${t.calmar.toFixed(1)} · ${t.copiers || '?'} copiadores · actualizado ${t.updated ? ago(t.updated) : '–'}
-      ${t.prev ? ` · antes ROI 90d ${pct(+t.prev.roi90, 1)}` : ''}</div>
-      ${t.flags.map((f) => `<div class="warn" style="margin:6px 0 0">⚠️ ${esc(f)}</div>`).join('')}
-      <div class="row" style="margin-top:8px;gap:6px"><button class="btn ghost small" data-edit="${esc(t.name)}">Actualizar cifras</button><button class="btn ghost small" data-del="${esc(t.name)}">Eliminar</button></div></div>`).join('') || '<div class="empty">Aún no agregas traders.</div>'}
-    <h2 id="tform">Agregar o actualizar trader</h2>
-    <form class="card" id="traderForm">
-      <label class="f">Nombre (como aparece en Binance)<input name="name" required></label>
-      <label class="f">Enlace al perfil (opcional)<input name="url" type="url" placeholder="https://www.binance.com/..."></label>
-      <div class="grid2"><label class="f">ROI 30 días %<input name="roi30" type="number" step="any" required></label><label class="f">ROI 90 días %<input name="roi90" type="number" step="any" required></label>
-      <label class="f">ROI 180 días % (si existe)<input name="roi180" type="number" step="any"></label><label class="f">Máx. drawdown %<input name="mdd" type="number" step="any" required></label>
-      <label class="f">Días operando<input name="days" type="number" required></label><label class="f">Copiadores<input name="copiers" type="number"></label></div>
-      <button class="btn" type="submit">Guardar</button>
-      <p class="note">Puntaje: 40% retorno ajustado por drawdown, 25% consistencia entre periodos, 20% trayectoria, 15% control del drawdown. Rentabilidades pasadas no garantizan resultados futuros.</p>
-    </form>`;
-}
-
-// ---------- Más: backtesting, riesgo, ajustes ----------
-function vMas() {
-  return `
-    <a class="card row between" href="#/backtest" style="text-decoration:none;color:inherit"><span><b>Backtesting</b><br><span class="small muted">Prueba las estrategias con datos históricos reales</span></span><span>›</span></a>
-    <a class="card row between" href="#/riesgo" style="text-decoration:none;color:inherit"><span><b>Riesgo y pérdidas del día</b><br><span class="small muted">Registra resultados y controla tu exposición</span></span><span>›</span></a>
-    <a class="card row between" href="#/ajustes" style="text-decoration:none;color:inherit"><span><b>Ajustes</b><br><span class="small muted">Capital, riesgo, alertas y monedas</span></span><span>›</span></a>
-    ${DISCLAIMER}`;
-}
-
-function vBacktest() {
-  const pairs = state.scan?.pairs?.map((p) => p.symbol) || ['BTCUSDT', 'ETHUSDT'];
-  const last = store.get('bt', { symbol: 'BTCUSDT', tf: '1h', bars: 2000 });
-  return `
-    <form class="card" id="btForm">
-      <label class="f">Par<input name="symbol" list="pairs" value="${esc(last.symbol)}"><datalist id="pairs">${pairs.map((p) => `<option value="${p}">`).join('')}</datalist></label>
-      <div class="grid2"><label class="f">Temporalidad<select name="tf">${TIMEFRAMES.map((t) => `<option ${t === last.tf ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
-      <label class="f">Velas a probar<select name="bars">${[1000, 2000, 3000, 5000].map((b) => `<option ${b === last.bars ? 'selected' : ''}>${b}</option>`).join('')}</select></label></div>
-      <button class="btn" type="submit" style="width:100%">Ejecutar backtest</button>
-      <p class="note">Señal al cierre de la vela, entrada en la apertura de la siguiente, comisión ${settings.feePct}% por lado, riesgo ${settings.riskPct}% por operación, solo compras (spot). Si SL y TP se tocan en la misma vela se asume pérdida.</p>
-    </form><div id="btOut"></div>`;
-}
-
-async function runBacktest(form) {
-  const symbol = form.symbol.value.trim().toUpperCase(), tf = form.tf.value, bars = +form.bars.value;
-  store.set('bt', { symbol, tf, bars });
-  const out = $('#btOut');
-  out.innerHTML = '<div class="empty"><span class="spin"></span> Descargando historial de Binance…</div>';
-  try {
-    const ms = { '5m': 5, '15m': 15, '1h': 60, '4h': 240, '1d': 1440 };
-    const h = HIGHER_TF[tf];
-    const c = await klinesHistory(symbol, tf, bars);
-    const htfBars = Math.min(5000, Math.ceil(bars * ms[tf] / ms[h]) + 260);
-    const htf = h !== tf ? await klinesHistory(symbol, h, htfBars) : c;
-    out.innerHTML = '<div class="empty"><span class="spin"></span> Simulando…</div>';
-    await new Promise((r) => setTimeout(r, 30));
-    const common = { feePct: settings.feePct, riskPct: settings.riskPct, capital: settings.capital, opts: { minRR: settings.minRR } };
-    const runs = [
-      backtest(c, htf, { ...common, strategy: 'confluencia', minQuality: 'media' }),
-      backtest(c, htf, { ...common, strategy: 'confluencia', minQuality: 'alta' }),
-      backtest(c, htf, { ...common, strategy: 'cruce_ema' }),
-      backtest(c, htf, { ...common, strategy: 'rsi_simple' }),
-    ];
-    const names = ['Confluencia (calidad media+)', 'Confluencia (solo alta)', STRATEGIES.cruce_ema, STRATEGIES.rsi_simple];
-    const colors = ['#16c784', '#4c8dff', '#b36bff', '#ff9f43'];
-    out.innerHTML = `<div class="card"><b>${esc(symbol)} ${tf}</b> <span class="small muted">${time(runs[0].from)} → ${time(runs[0].to)}</span>
-      <div style="overflow-x:auto"><table class="mono" style="margin-top:8px"><tr><th>Estrategia</th><th>Ops</th><th>% gan.</th><th>Neto</th><th>Máx DD</th><th>PF</th></tr>
-      ${runs.map((r, k) => `<tr><td><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${colors[k]}"></i> ${names[k]}</td><td>${r.trades}</td><td>${r.trades ? r.winRate.toFixed(0) + '%' : '–'}</td>
-        <td class="${r.netPct >= 0 ? 'up' : 'down'}">${pct(r.netPct, 1)}</td><td class="down">${r.maxDDPct.toFixed(1)}%</td><td>${r.trades ? (isFinite(r.profitFactor) ? r.profitFactor.toFixed(2) : '∞') : '–'}</td></tr>`).join('')}
-      <tr><td class="muted">Comprar y mantener</td><td></td><td></td><td class="${runs[0].buyHoldPct >= 0 ? 'up' : 'down'}">${pct(runs[0].buyHoldPct, 1)}</td><td></td><td></td></tr></table></div>
-      <canvas class="eq" id="eq" style="margin-top:10px"></canvas>
-      <p class="note">PF = factor de beneficio (ganancias ÷ pérdidas; mayor a 1,3 es razonable). Resultados con comisiones incluidas. ${runs[0].trades < 30 ? '<b>Menos de 30 operaciones: muestra pequeña, el resultado puede ser casualidad.</b>' : ''} Un buen resultado pasado no asegura el futuro: prueba varios pares y periodos antes de confiar en una estrategia.</p></div>`;
-    requestAnimationFrame(() => drawEquity($('#eq'), runs.map((r, k) => ({ points: r.curve, color: colors[k] }))));
-  } catch (e) { out.innerHTML = `<div class="danger">Error: ${esc(e.message)}</div>`; }
-}
-
-function vRiesgo() {
-  const trades = store.get('trades', []), positions = store.get('positions', []);
-  const dl = dailyLossStatus(trades, settings.capital, settings.maxDailyLossPct);
-  const today = new Date().toISOString().slice(0, 10);
-  const exposure = positions.reduce((s, p) => s + +p.amount, 0);
-  return `
-    <div class="card"><b>Pérdida/ganancia de hoy</b><div class="big mono ${dl.pnl >= 0 ? 'up' : 'down'}">${usd(dl.pnl)}</div>
-      <div class="small muted">Límite diario: ${usd(dl.limit)} (${settings.maxDailyLossPct}% de ${usd(settings.capital)})</div>
-      ${dl.blocked ? '<div class="danger">Límite alcanzado: detente por hoy. Las señales seguirán visibles, pero la app te avisará que no operes.</div>' : `<div class="small">Te quedan ${usd(dl.remaining)} de margen antes del límite.</div>`}</div>
-    <form class="card" id="tradeForm"><b>Registrar operación cerrada</b>
-      <div class="grid2" style="margin-top:8px"><label class="f">Moneda<input name="symbol" placeholder="BTC" required></label><label class="f">Resultado (USDT, negativo si perdiste)<input name="pnl" type="number" step="any" required></label></div>
-      <button class="btn" type="submit">Agregar</button></form>
-    ${trades.filter((t) => t.date === today).map((t, k) => `<div class="card small row between"><span>${esc(t.symbol)}</span><span class="mono ${t.pnl >= 0 ? 'up' : 'down'}">${usd(t.pnl)}</span></div>`).join('')}
-    <h2>Exposición actual</h2>
-    <div class="card"><div class="small muted">Total invertido: <b>${usd(exposure)}</b> (${(exposure / settings.capital * 100).toFixed(0)}% del capital)</div>
-      ${positions.map((p, k) => { const pc = p.amount / settings.capital * 100; return `<div class="row between small" style="margin-top:6px"><span>${esc(p.symbol)}</span><span class="mono ${pc > settings.maxExposurePct ? 'down' : ''}">${usd(+p.amount)} · ${pc.toFixed(0)}% ${pc > settings.maxExposurePct ? '⚠️ supera tu máximo' : ''}</span><button class="btn ghost" data-delpos="${k}" style="padding:2px 8px">×</button></div>`; }).join('')}
-    </div>
-    <form class="card" id="posForm"><b>Agregar posición abierta</b>
-      <div class="grid2" style="margin-top:8px"><label class="f">Moneda<input name="symbol" placeholder="ETH" required></label><label class="f">Monto invertido (USDT)<input name="amount" type="number" step="any" required></label></div>
-      <button class="btn" type="submit">Agregar</button></form>`;
-}
-
-function vAjustes() {
-  const s = settings;
-  const tfChip = (t) => `<label class="chip ${s.liveTfs.includes(t) ? 'on' : ''}"><input type="checkbox" name="tf" value="${t}" ${s.liveTfs.includes(t) ? 'checked' : ''} hidden>${t}</label>`;
-  const notifState = !('Notification' in window) ? 'no disponible en este navegador' : Notification.permission === 'granted' ? 'permitidas' : Notification.permission === 'denied' ? 'bloqueadas (cámbialo en ajustes del navegador)' : 'sin permiso todavía';
-  return `
-    <form class="card" id="setForm">
-      <h2 style="margin-top:0">Capital y riesgo</h2>
-      <div class="grid2">
-        <label class="f">Capital de referencia (USDT)<input name="capital" type="number" step="any" value="${s.capital}"></label>
-        <label class="f">Riesgo por operación (%)<input name="riskPct" type="number" step="0.1" value="${s.riskPct}"></label>
-        <label class="f">Riesgo/beneficio mínimo<input name="minRR" type="number" step="0.1" value="${s.minRR}"></label>
-        <label class="f">Pérdida diaria máxima (%)<input name="maxDailyLossPct" type="number" step="0.5" value="${s.maxDailyLossPct}"></label>
-        <label class="f">Exposición máx. por moneda (%)<input name="maxExposurePct" type="number" step="1" value="${s.maxExposurePct}"></label>
-        <label class="f">Comisión por lado (%)<input name="feePct" type="number" step="0.01" value="${s.feePct}"></label>
-      </div>
-      <p class="note">Recomendación general para principiantes: arriesgar 0,5–1% por operación y no más de 2–3% de pérdida en un día.</p>
-      <h2>Análisis en vivo</h2>
-      <label class="f">Cantidad de monedas (por volumen)<input name="topN" type="number" min="5" max="60" value="${s.topN}"></label>
-      <div class="chips">${TIMEFRAMES.map(tfChip).join('')}</div>
-      <label class="f">Monedas extra a vigilar (ej: PEPE, LINK)<input name="watch" value="${esc(s.watch)}"></label>
-      <label class="f">Monedas a excluir (ej: SOXLB)<input name="exclude" value="${esc(s.exclude || '')}"></label>
-      <label class="f">Actualizar cada (minutos, mientras la app está abierta)<input name="autoRefreshMin" type="number" min="1" value="${s.autoRefreshMin}"></label>
-      <h2>Notificaciones en el celular</h2>
-      <label class="f">Calidad mínima para avisar<select name="minQualityNotify"><option ${s.minQualityNotify === 'media' ? 'selected' : ''}>media</option><option ${s.minQualityNotify === 'alta' ? 'selected' : ''}>alta</option></select></label>
-      <label class="row small"><input type="checkbox" name="notify" ${s.notify ? 'checked' : ''} style="width:auto"> Avisarme de señales nuevas mientras la app está abierta (estado: ${notifState})</label>
-      <p class="note">Para recibir alertas con la app cerrada, configura Telegram con el escáner automático (ver README, paso 4).</p>
-      <button class="btn" type="submit" style="width:100%;margin-top:10px">Guardar ajustes</button>
-    </form>
-    <button class="btn ghost" id="resetAll" style="width:100%">Restablecer ajustes</button>`;
-}
-
-// ---------- Router ----------
+// ---------------- Navegación ----------------
 async function render() {
-  const [path, query] = (location.hash.slice(1) || '/').split('?');
-  const params = new URLSearchParams(query || '');
-  const parts = path.split('/').filter(Boolean);
-  const tab = parts[0] || 'inicio';
-  document.querySelectorAll('#tabs a').forEach((a) => a.classList.toggle('on', a.dataset.tab === ({ senal: 'senales', backtest: 'mas', riesgo: 'mas', ajustes: 'mas' }[tab] || tab)));
-  const titles = { inicio: 'Cripto Señales', senales: 'Señales', historial: 'Historial', traders: 'Traders', mas: 'Más', backtest: 'Backtesting', riesgo: 'Riesgo', ajustes: 'Ajustes', senal: 'Análisis' };
-  $('#title').textContent = titles[tab] || 'Cripto Señales';
-  let html;
-  switch (tab) {
-    case 'senales': html = vSenales(params); break;
-    case 'senal': html = await vDetalle(parts[1], parts[2] || '1h'); break;
-    case 'historial': html = vHistorial(); break;
-    case 'traders': html = vTraders(); break;
-    case 'mas': html = vMas(); break;
-    case 'backtest': html = vBacktest(); break;
-    case 'riesgo': html = vRiesgo(); break;
-    case 'ajustes': html = vAjustes(); break;
-    default: html = vInicio();
-  }
-  if (html != null) view.innerHTML = html;
+  const [path, q] = (location.hash.slice(1) || '/').split('?');
+  const params = new URLSearchParams(q || ''), parts = path.split('/').filter(Boolean), tab = parts[0] || 'inicio';
+  document.querySelectorAll('#tabs a').forEach((a) => a.classList.toggle('on', a.dataset.tab === (tab === 'moneda' ? 'mercado' : tab)));
+  const needsMarket = ['inicio', 'mercado', 'moneda'].includes(tab);
+  const draw = () => {
+    view.innerHTML = tab === 'mercado' ? vMercado(params) : tab === 'moneda' ? vMoneda(parts[1]) : tab === 'probar' ? vProbar(params) : tab === 'robot' ? vRobot() : vInicio();
+    window.scrollTo(0, 0);
+  };
+  draw();
+  if (needsMarket && !state.market) { await loadMarket(); draw(); }
 }
-
-// Delegación de eventos
 document.addEventListener('click', (e) => {
   const go = e.target.closest('[data-go]');
-  if (go && !e.target.closest('a,button')) { location.hash = go.dataset.go; return; }
-  const chip = e.target.closest('[data-f]');
-  if (chip) { state.filter[chip.dataset.f] = chip.dataset.v; history.replaceState(null, '', '#/senales'); render(); return; }
-  const fav = e.target.closest('[data-fav]');
-  if (fav) { const t = store.get('traders', []); const x = t.find((y) => y.name === fav.dataset.fav); if (x) x.fav = !x.fav; store.set('traders', t); render(); return; }
-  const del = e.target.closest('[data-del]');
-  if (del && confirm('¿Eliminar este trader?')) { store.set('traders', store.get('traders', []).filter((y) => y.name !== del.dataset.del)); render(); return; }
-  const ed = e.target.closest('[data-edit]');
-  if (ed) { const t = store.get('traders', []).find((y) => y.name === ed.dataset.edit); const f = $('#traderForm'); for (const k of ['name', 'url', 'roi30', 'roi90', 'roi180', 'mdd', 'days', 'copiers']) f[k].value = t[k] ?? ''; $('#tform').scrollIntoView({ behavior: 'smooth' }); return; }
-  if (e.target.id === 'tAll' || e.target.id === 'tFav') { state.favOnly = e.target.id === 'tFav'; render(); return; }
-  const dp = e.target.closest('[data-delpos]');
-  if (dp) { const p = store.get('positions', []); p.splice(+dp.dataset.delpos, 1); store.set('positions', p); render(); return; }
-  if (e.target.id === 'resetAll' && confirm('¿Restablecer los ajustes?')) { settings = { ...DEFAULT_SETTINGS }; store.set('settings', settings); render(); }
-  const tfl = e.target.closest('label.chip');
-  if (tfl) setTimeout(() => tfl.classList.toggle('on', tfl.querySelector('input').checked));
+  if (go && !e.target.closest('a,button')) location.hash = go.dataset.go;
+  if (e.target.id === 'pRun') runProbar();
 });
-
-document.addEventListener('submit', async (e) => {
+document.addEventListener('submit', (e) => {
+  if (e.target.id !== 'prefsForm') return;
   e.preventDefault();
-  const f = e.target, fd = new FormData(f);
-  if (f.id === 'btForm') return runBacktest(f);
-  if (f.id === 'traderForm') {
-    const t = store.get('traders', []);
-    const rec = Object.fromEntries(fd.entries());
-    rec.updated = Date.now();
-    const i = t.findIndex((y) => y.name.toLowerCase() === rec.name.toLowerCase());
-    if (i >= 0) { rec.fav = t[i].fav; rec.prev = { roi30: t[i].roi30, roi90: t[i].roi90, mdd: t[i].mdd, updated: t[i].updated }; t[i] = rec; } else t.push(rec);
-    store.set('traders', t); render(); return;
-  }
-  if (f.id === 'tradeForm') {
-    const t = store.get('trades', []);
-    t.push({ symbol: fd.get('symbol').toUpperCase(), pnl: +fd.get('pnl'), date: new Date().toISOString().slice(0, 10) });
-    store.set('trades', t.slice(-500)); render(); return;
-  }
-  if (f.id === 'posForm') {
-    const p = store.get('positions', []); p.push({ symbol: fd.get('symbol').toUpperCase(), amount: +fd.get('amount') });
-    store.set('positions', p); render(); return;
-  }
-  if (f.id === 'setForm') {
-    const num = (k) => +fd.get(k);
-    const wantNotify = !!fd.get('notify');
-    settings = {
-      ...settings, capital: num('capital'), riskPct: num('riskPct'), minRR: num('minRR'), maxDailyLossPct: num('maxDailyLossPct'),
-      maxExposurePct: num('maxExposurePct'), feePct: num('feePct'), topN: Math.min(60, Math.max(5, num('topN'))),
-      liveTfs: fd.getAll('tf').length ? fd.getAll('tf') : ['1h'], watch: fd.get('watch'), exclude: fd.get('exclude'), autoRefreshMin: Math.max(1, num('autoRefreshMin')),
-      minQualityNotify: fd.get('minQualityNotify'), notify: wantNotify,
-    };
-    if (wantNotify && 'Notification' in window && Notification.permission === 'default') await Notification.requestPermission();
-    store.set('settings', settings); scheduleRefresh(); toastOk('Ajustes guardados'); render();
-  }
+  const fd = new FormData(e.target);
+  prefs = { capital: Math.max(1, +fd.get('capital') || 50), riskPct: Math.min(5, Math.max(0.1, +fd.get('riskPct') || 1.5)), botUser: String(fd.get('botUser') || '').trim().replace(/^@/, '') };
+  store.set('prefs2', prefs); toast('Ajustes guardados'); render();
 });
-
-function toastOk(msg) { const d = document.createElement('div'); d.className = 'card'; d.style.cssText = 'position:fixed;left:16px;right:16px;bottom:80px;z-index:9;text-align:center'; d.textContent = msg; document.body.appendChild(d); setTimeout(() => d.remove(), 2000); }
-
-let timer;
-function scheduleRefresh() {
-  clearInterval(timer);
-  timer = setInterval(() => { if (document.visibilityState === 'visible') liveScan(); }, settings.autoRefreshMin * 60000);
-}
-setInterval(updateStatus, 30000);
-$('#refresh').addEventListener('click', () => (location.hash.startsWith('#/senal/') ? render() : liveScan()));
+$('#refresh').addEventListener('click', async () => { await loadMarket(true); render(); });
 window.addEventListener('hashchange', render);
+setInterval(() => { if (state.at) setStatus(ago(state.at)); }, 30e3);
+setInterval(async () => { if (document.visibilityState === 'visible' && ['', '#/', '#/mercado'].includes(location.hash.split('?')[0])) { await loadMarket(true); render(); } }, 10 * 60e3);
 
-// ---------- Inicio ----------
+brand();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
-(async () => {
-  await loadScannerData();
-  updateStatus();
-  render();
-  const stale = !state.scan || Date.now() - state.scan.generatedAt > 30 * 60000;
-  if (stale) liveScan();
-  scheduleRefresh();
-})();
+render();

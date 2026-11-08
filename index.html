@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0d1220">
+  <meta name="theme-color" content="#070b16">
   <meta name="color-scheme" content="dark light">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Cripto Señales">
-  <title>Cripto Señales</title>
+  <meta name="apple-mobile-web-app-title" content="Eintes Robot">
+  <title>Eintes Robot</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon-192.png">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -16,17 +16,16 @@
 </head>
 <body>
   <header class="top">
-    <h1 id="title">Cripto Señales</h1>
-    <span class="sub" id="status"></span>
-    <button class="btn ghost" id="refresh" aria-label="Actualizar" style="padding:7px 10px">↻</button>
+    <div class="brand" id="brand"></div>
+    <span class="status" id="status"></span>
+    <button class="icon-btn" id="refresh" aria-label="Actualizar">↻</button>
   </header>
-  <main id="view"><div class="empty"><span class="spin"></span> Cargando…</div></main>
+  <main id="view"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></main>
   <nav class="tabs" id="tabs">
-    <a href="#/" data-tab="inicio"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Inicio</a>
-    <a href="#/senales" data-tab="senales"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg>Señales</a>
-    <a href="#/historial" data-tab="historial"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Historial</a>
-    <a href="#/traders" data-tab="traders"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M21.5 20c-.5-2.4-1.8-4-3.5-4.8"/></svg>Traders</a>
-    <a href="#/mas" data-tab="mas"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>Más</a>
+    <a href="#/" data-tab="inicio"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Inicio</a>
+    <a href="#/mercado" data-tab="mercado"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg>Mercado</a>
+    <a href="#/probar" data-tab="probar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6M10 3v6L4.5 18.5A1.5 1.5 0 0 0 5.8 21h12.4a1.5 1.5 0 0 0 1.3-2.5L14 9V3"/><path d="M7 15h10"/></svg>Probar</a>
+    <a href="#/robot" data-tab="robot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="8" width="16" height="12" rx="4"/><path d="M12 4v4"/><circle cx="12" cy="3" r="1"/><circle cx="9" cy="14" r="1.2"/><circle cx="15" cy="14" r="1.2"/></svg>Robot</a>
   </nav>
   <script type="module" src="app.js"></script>
 </body>
