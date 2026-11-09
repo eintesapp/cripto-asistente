@@ -22,6 +22,7 @@ const name = (s) => s.replace(/USDT$/, '');
 const COLORS = ['#f7931a', '#627eea', '#f3ba2f', '#14f195', '#23292f', '#c2a633', '#0033ad', '#ef0027', '#2a5ada', '#e84142', '#e6007a', '#345d9d', '#0ac18e', '#00c08b', '#ff007a', '#2e3148', '#14b6e7', '#3ab83a', '#06d6a0', '#4da2ff'];
 const coinBadge = (s) => `<div class="coin" style="background:${COLORS[MAJORS.indexOf(s) % COLORS.length] || '#475569'}">${esc(name(s).slice(0, 4))}</div>`;
 const binanceUrl = (s) => `https://www.binance.com/es/trade/${name(s)}_USDT?type=spot`;
+const FULL = { BTCUSDT: 'Bitcoin', ETHUSDT: 'Ethereum', BNBUSDT: 'BNB', SOLUSDT: 'Solana', XRPUSDT: 'Ripple', DOGEUSDT: 'Dogecoin', ADAUSDT: 'Cardano', TRXUSDT: 'Tron', LINKUSDT: 'Chainlink', AVAXUSDT: 'Avalanche', DOTUSDT: 'Polkadot', LTCUSDT: 'Litecoin', BCHUSDT: 'Bitcoin Cash', NEARUSDT: 'Near', UNIUSDT: 'Uniswap', ATOMUSDT: 'Cosmos', XLMUSDT: 'Stellar', ETCUSDT: 'Ethereum Classic', APTUSDT: 'Aptos', SUIUSDT: 'Sui' };
 const STATUS = {
   ruptura: { label: 'RUPTURA HOY', cls: 'p-ruptura' },
   cerca: { label: 'CERCA', cls: 'p-cerca' },
@@ -91,7 +92,7 @@ function rowItem(r) {
     : r.status === 'fuera' ? `Bajo su media de 200 (${pct((r.price / r.sma200 - 1) * 100)})`
     : r.dist <= 0 ? `Ya supera ${fmt(r.nextLevel)}: falta confirmar al cierre (21:00)`
     : `Le falta ${r.dist.toFixed(1)}% para romper ${fmt(r.nextLevel)}`;
-  return `<div class="item" data-go="#/moneda/${r.symbol}">${coinBadge(r.symbol)}
+  return `<div class="item" data-go="#/moneda/${r.symbol}" data-name="${name(r.symbol).toLowerCase()} ${(FULL[r.symbol] || '').toLowerCase()}">${coinBadge(r.symbol)}
     <div class="grow"><div class="row between"><b>${name(r.symbol)}</b><span class="mono">${fmt(r.price)}</span></div>
     <div class="row between small"><span class="muted">${sub}</span><span class="${r.change >= 0 ? 'up' : 'down'} mono">${pct(r.change)}</span></div></div>
     <span class="pill ${st.cls}">${st.label}</span></div>`;
@@ -136,8 +137,9 @@ function vMercado(params) {
   if (f !== 'todas') rows = rows.filter((r) => r.status === f);
   const chip = (v, l) => `<a class="chip ${f === v ? 'on' : ''}" href="#/mercado?f=${v}" style="text-decoration:none">${l}</a>`;
   const cnt = (s) => m.rows.filter((r) => r.status === s).length;
-  return `<div class="chips">${chip('todas', `Todas (${m.rows.length})`)}${chip('ruptura', `Rupturas (${cnt('ruptura')})`)}${chip('cerca', `Cerca (${cnt('cerca')})`)}${chip('tendencia', `En tendencia (${cnt('tendencia')})`)}${chip('fuera', `Bajistas (${cnt('fuera')})`)}</div>
-    <div class="card list">${rows.map(rowItem).join('') || '<div class="muted small">No hay criptos en esta categoría ahora.</div>'}</div>
+  return `<div class="search"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="mSearch" type="search" placeholder="Buscar moneda (ej: sol, bitcoin)" autocomplete="off" value="${esc(state.q || '')}"></div>
+    <div class="chips">${chip('todas', `Todas (${m.rows.length})`)}${chip('ruptura', `Rupturas (${cnt('ruptura')})`)}${chip('cerca', `Cerca (${cnt('cerca')})`)}${chip('tendencia', `En tendencia (${cnt('tendencia')})`)}${chip('fuera', `Bajistas (${cnt('fuera')})`)}</div>
+    <div class="card list" id="mList">${rows.map(rowItem).join('') || '<div class="muted small">No hay criptos en esta categoría ahora.</div>'}<div class="muted small" id="mNone" style="display:none;padding:10px 0">No encontré esa moneda. El robot analiza solo las 20 criptos principales.</div></div>
     <div class="card small"><b>Cómo leerlo</b><div class="muted" style="margin-top:6px">
     <span class="pill p-ruptura">RUPTURA HOY</span> cerró sobre su máximo de 55 días en tendencia alcista: el robot propone comprar.<br><br>
     <span class="pill p-cerca">CERCA</span> en tendencia y a menos de 3% de romper.<br><br>
@@ -334,6 +336,7 @@ async function render() {
   const draw = () => {
     view.innerHTML = tab === 'mercado' ? vMercado(params) : tab === 'moneda' ? vMoneda(parts[1]) : tab === 'probar' ? vProbar(params) : tab === 'robot' ? vRobot() : vInicio();
     window.scrollTo(0, 0);
+    if (tab === 'mercado') applySearch();
   };
   draw();
   if (needsMarket && !state.market) { await loadMarket(); draw(); }
@@ -343,6 +346,13 @@ document.addEventListener('click', (e) => {
   if (go && !e.target.closest('a,button')) location.hash = go.dataset.go;
   if (e.target.id === 'pRun') runProbar();
 });
+function applySearch() {
+  const q = (state.q || '').trim().toLowerCase(), items = document.querySelectorAll('#mList .item');
+  let shown = 0;
+  items.forEach((it) => { const ok = !q || it.dataset.name.includes(q); it.style.display = ok ? '' : 'none'; if (ok) shown++; });
+  const none = document.getElementById('mNone'); if (none) none.style.display = items.length && !shown ? '' : 'none';
+}
+document.addEventListener('input', (e) => { if (e.target.id === 'mSearch') { state.q = e.target.value; applySearch(); } });
 document.addEventListener('change', (e) => { if (e.target.id === 'pMode') { const o = $('#pBotOpts'); if (o) o.style.display = e.target.value === 'bot' ? '' : 'none'; } });
 document.addEventListener('submit', (e) => {
   if (e.target.id !== 'prefsForm') return;

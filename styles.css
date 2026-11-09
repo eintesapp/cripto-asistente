@@ -116,3 +116,12 @@ nav.tabs a.on svg { stroke: var(--cyan); }
 @keyframes s { to { transform: rotate(360deg); } }
 .toast { position: fixed; left: 16px; right: 16px; bottom: 90px; z-index: 9; text-align: center; }
 .disclaimer { font-size: 11.5px; color: var(--dim); text-align: center; margin: 22px 8px 6px; line-height: 1.5; }
+
+.robot-foto { animation: respira 3.2s ease-in-out infinite; background: #0b1730; }
+.robot-foto.alerta { animation: alerta 1.2s ease-in-out infinite; }
+@keyframes respira { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.12); } }
+@keyframes alerta { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.04); } }
+
+.search { display: flex; align-items: center; gap: 8px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 0 12px; margin-bottom: 10px; color: var(--muted); }
+.search input { border: 0; background: transparent; padding: 12px 0; }
+.search input:focus { outline: none; }
