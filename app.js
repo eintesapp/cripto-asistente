@@ -8,7 +8,7 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
-let prefs = { capital: 50, riskPct: 1.5, botUser: '', ...store.get('prefs2', {}) };
+let prefs = { capital: 50, riskPct: 1.5, botUser: '', fiat: 'VES', ...store.get('prefs2', {}) };
 
 // ---------------- Utilidades ----------------
 const $ = (s) => document.querySelector(s);
@@ -98,6 +98,23 @@ function rowItem(r) {
     <span class="pill ${st.cls}">${st.label}</span></div>`;
 }
 
+function binanceCard() {
+  const f = prefs.fiat || 'VES';
+  const B = 'https://www.binance.com/es';
+  const links = [
+    ['🟡', 'Abrir Binance', `${B}`],
+    ['💰', 'Mi billetera', `${B}/my/wallet/account/main`],
+    ['⬇️', 'Depositar USDT', `${B}/my/wallet/account/main/deposit/crypto/USDT`],
+    ['🔁', 'Convertir', `${B}/convert`],
+    ['🤝', `Comprar USDT con ${f} (P2P)`, `https://p2p.binance.com/es/trade/all-payments/USDT?fiat=${f}`],
+    ['💵', `Vender USDT por ${f} (P2P)`, `https://p2p.binance.com/es/trade/sell/USDT?fiat=${f}&payment=all-payments`],
+    ['📋', 'Mis órdenes', `${B}/my/orders/exchange/openorder`],
+    ['📈', 'Operar BTC/USDT', `${B}/trade/BTC_USDT?type=spot`],
+  ];
+  return `<h2>Mi Binance</h2><div class="card"><div class="bgrid">${links.map(([i, t, u]) => `<a class="bbtn" href="${u}" target="_blank" rel="noopener"><span>${i}</span>${esc(t)}</a>`).join('')}</div>
+    <p class="note">Abren tu app de Binance (o la web si el teléfono no la abre sola). En P2P verás el precio actual del USDT en ${f}. Cambia la moneda local en Robot → Mis ajustes. Por seguridad, Eintes Robot no guarda ni ve tus claves de Binance.</p></div>`;
+}
+
 // ---------------- Vistas ----------------
 function vInicio() {
   const m = state.market;
@@ -123,6 +140,7 @@ function vInicio() {
     <div class="card list">${br.map(rowItem).join('') || '<div class="muted small">Ninguna por ahora. Las rupturas son pocas: entre 3 y 5 al mes entre las 20 criptos.</div>'}</div>
     <h2>Cerca de romper <a href="#/mercado?f=cerca">todas</a></h2>
     <div class="card list">${near.slice(0, 5).map(rowItem).join('') || '<div class="muted small">Ninguna cripto está a menos de 3% de su máximo de 55 días.</div>'}</div>
+    ${binanceCard()}
     <div class="card"><div class="row between"><div><div class="small muted">Próxima revisión del robot</div><div class="big">${nextReview()}</div><div class="tiny muted">Cierre diario: 21:00 en Chile</div></div>${robotSvg(54, 'calma', 'nr')}</div>
       ${tg ? `<a class="btn block" style="margin-top:12px" href="${tg}" target="_blank" rel="noopener">Abrir mi robot en Telegram</a>` : `<a class="btn ghost block" style="margin-top:12px" href="#/robot">Conectar mi bot de Telegram</a>`}</div>
     <p class="tiny muted" style="text-align:center">Datos públicos de Binance · actualizado ${ago(m.at)}</p>${DISCLAIMER}`;
@@ -320,6 +338,7 @@ function vRobot() {
     <form class="card" id="prefsForm">
       <div class="grid2"><label class="f">Capital (USDT)<input name="capital" type="number" step="any" min="1" value="${prefs.capital}"></label>
       <label class="f">Riesgo por operación (%)<input name="riskPct" type="number" step="0.1" min="0.1" max="5" value="${prefs.riskPct}"></label></div>
+      <label class="f">Moneda local para P2P<select name="fiat">${['VES', 'CLP', 'COP', 'PEN', 'ARS', 'MXN', 'USD', 'EUR'].map((c) => `<option ${c === (prefs.fiat || 'VES') ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
       <label class="f">Usuario de tu bot de Telegram (ej: jhonny_senales_bot)<input name="botUser" value="${esc(prefs.botUser)}" placeholder="sin @"></label>
       <button class="btn block" type="submit">Guardar</button>
       <p class="note">Se guardan solo en este teléfono. Usa los mismos valores que el bot (riesgo 1,5% por defecto).</p></form>${DISCLAIMER}`;
@@ -358,7 +377,7 @@ document.addEventListener('submit', (e) => {
   if (e.target.id !== 'prefsForm') return;
   e.preventDefault();
   const fd = new FormData(e.target);
-  prefs = { capital: Math.max(1, +fd.get('capital') || 50), riskPct: Math.min(5, Math.max(0.1, +fd.get('riskPct') || 1.5)), botUser: String(fd.get('botUser') || '').trim().replace(/^@/, '') };
+  prefs = { capital: Math.max(1, +fd.get('capital') || 50), riskPct: Math.min(5, Math.max(0.1, +fd.get('riskPct') || 1.5)), botUser: String(fd.get('botUser') || '').trim().replace(/^@/, ''), fiat: String(fd.get('fiat') || 'VES') };
   store.set('prefs2', prefs); toast('Ajustes guardados'); render();
 });
 $('#refresh').addEventListener('click', async () => { await loadMarket(true); render(); });
