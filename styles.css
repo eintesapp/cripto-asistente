@@ -130,3 +130,10 @@ nav.tabs a.on svg { stroke: var(--cyan); }
 .bbtn { display: flex; align-items: center; gap: 8px; padding: 12px; border-radius: 14px; background: var(--card2); border: 1px solid var(--line); color: var(--text); text-decoration: none; font-size: 13.5px; font-weight: 600; line-height: 1.25; }
 .bbtn span { font-size: 18px; }
 .bbtn:active { transform: scale(.98); }
+
+textarea { width: 100%; background: var(--card2); color: var(--text); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; font-size: 13px; font-family: ui-monospace, monospace; resize: vertical; }
+details.card summary { cursor: pointer; list-style: none; }
+details.card summary::-webkit-details-marker { display: none; }
+details.card summary::after { content: ' ▾'; color: var(--muted); }
+.btn[aria-disabled="true"] { opacity: .5; pointer-events: none; }
+.grid3 .stat .v { font-size: 15px; }

@@ -176,6 +176,14 @@ Además resta puntos y avisa cuando detecta:
 
 También guarda la cifra anterior para ver la evolución, y puedes marcar favoritos. Si Binance publica una API oficial, se integra en una fase futura.
 
+**Implementado en Eintes Robot 2.6** (pestaña **Traders**, archivo `traders.js`):
+
+- Lista propia de hasta **10 traders**, ordenada por puntaje (los favoritos ★ van arriba).
+- Etiquetas: **SÓLIDO** (70+), **ACEPTABLE** (50–69), **RIESGOSO** (<50).
+- Cada actualización guarda una foto (hasta 24) y muestra ▲▼ frente a la anterior.
+- Los 3 mejores aparecen en **Inicio**.
+- Respaldo copiable para pasar la lista a otro teléfono (los datos viven solo en el teléfono).
+
 ---
 
 ## 6. Pruebas (Fase 8)

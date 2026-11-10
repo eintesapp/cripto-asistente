@@ -2,6 +2,7 @@ import { klines, klinesHistory, tickers24h, pool } from './binance.js';
 import { MAJORS, TREND, trendIndicators, breakoutSignal, simulateTrend, simulatePortfolio } from './tendencia.js';
 import { robotSvg } from './robot.js';
 import { drawTrendChart, drawEquity, gaugeSvg } from './chart.js';
+import { MAX_TRADERS, scoreTrader, loadTraders, saveTraders, upsertTrader, ranked, exportBackup, importBackup } from './traders.js';
 
 // ---------------- Preferencias (guardadas solo en este teléfono) ----------------
 const store = {
@@ -141,6 +142,7 @@ function vInicio() {
     <h2>Cerca de romper <a href="#/mercado?f=cerca">todas</a></h2>
     <div class="card list">${near.slice(0, 5).map(rowItem).join('') || '<div class="muted small">Ninguna cripto está a menos de 3% de su máximo de 55 días.</div>'}</div>
     ${binanceCard()}
+    ${tradersHomeCard()}
     <div class="card"><div class="row between"><div><div class="small muted">Próxima revisión del robot</div><div class="big">${nextReview()}</div><div class="tiny muted">Cierre diario: 21:00 en Chile</div></div>${robotSvg(54, 'calma', 'nr')}</div>
       ${tg ? `<a class="btn block" style="margin-top:12px" href="${tg}" target="_blank" rel="noopener">Abrir mi robot en Telegram</a>` : `<a class="btn ghost block" style="margin-top:12px" href="#/robot">Conectar mi bot de Telegram</a>`}</div>
     <p class="tiny muted" style="text-align:center">Datos públicos de Binance · actualizado ${ago(m.at)}</p>${DISCLAIMER}`;
@@ -344,6 +346,93 @@ function vRobot() {
       <p class="note">Se guardan solo en este teléfono. Usa los mismos valores que el bot (riesgo 1,5% por defecto).</p></form>${DISCLAIMER}`;
 }
 
+// ---------------- Traders (Copy Trading) ----------------
+const COPY_URL = 'https://www.binance.com/es/copy-trading';
+const scoreRing = (v, size = 46) => { const r = size / 2 - 4, c = 2 * Math.PI * r, col = v >= 70 ? 'var(--up)' : v >= 50 ? 'var(--warn)' : 'var(--down)';
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="flex:none"><circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="var(--card2)" stroke-width="5"/><circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${col}" stroke-width="5" stroke-linecap="round" stroke-dasharray="${c * v / 100} ${c}" transform="rotate(-90 ${size / 2} ${size / 2})"/><text x="50%" y="54%" text-anchor="middle" dominant-baseline="middle" fill="var(--text)" font-size="${size * 0.32}" font-weight="800">${v}</text></svg>`; };
+const delta = (t, f) => { const h = t.history || []; if (h.length < 2) return ''; const a = h[h.length - 2][f], b = h[h.length - 1][f]; if (a == null || b == null || a === b) return '';
+  const d = b - a, good = f === 'mdd' ? d < 0 : d > 0; return ` <span class="tiny ${good ? 'up' : 'down'}">${d > 0 ? '▲' : '▼'}${Math.abs(d).toFixed(f === 'copiers' || f === 'score' ? 0 : 1)}</span>`; };
+
+function traderItem({ t, s }, i) {
+  return `<div class="item" data-go="#/traders/${t.id}">${scoreRing(s.score)}
+    <div class="grow"><div class="row between"><b>${i + 1}. ${t.fav ? '★ ' : ''}${esc(t.name)}</b><span class="pill ${s.grade.cls}">${s.grade.label}</span></div>
+    <div class="row between small"><span class="muted">90d ${pct(t.roi90)} · MDD ${t.mdd != null ? t.mdd.toFixed(1) + '%' : '–'} · ${esc(t.type)}</span><span class="muted">${s.flags.some((f) => f.cls === 'down') ? '⚠️' : ''}${delta(t, 'score')}</span></div></div></div>`;
+}
+
+function vTraders() {
+  const list = loadTraders(), r = ranked(list);
+  const full = list.length >= MAX_TRADERS;
+  return `<section class="hero">${robotSvg(72, r.length ? 'feliz' : 'calma', 'tr')}<div class="bubble"><b>Mis traders a seguir</b><span>${r.length ? `Sigo ${r.length} de ${MAX_TRADERS}. Los ordeno por un puntaje propio que castiga el riesgo, no solo la ganancia.` : 'Agrega hasta 10 traders de Copy Trading y te digo cuáles se ven sólidos y cuáles arriesgados.'}</span></div></section>
+    <div class="grid2"><a class="btn ${full ? 'ghost' : ''} block" href="#/traders/nuevo" ${full ? 'aria-disabled="true"' : ''}>+ Agregar trader</a><a class="btn ghost block" href="${COPY_URL}" target="_blank" rel="noopener">Ver Copy Trading</a></div>
+    ${full ? '<div class="callout warn">Lista llena. Elimina uno para agregar otro.</div>' : ''}
+    <h2>Ranking</h2>
+    <div class="card list">${r.map(traderItem).join('') || '<div class="muted small">Todavía no tienes traders. Toca “Agregar trader”.</div>'}</div>
+    <h2>Cómo agregar uno</h2>
+    <div class="card"><ol class="steps">
+      <li>Abre <b>Copy Trading</b> en Binance y entra al perfil de un trader.</li>
+      <li>Copia el <b>ROI</b> de 30, 90 y 180 días, el <b>MDD</b> (drawdown máximo), los <b>días</b> operando y los <b>copiadores</b>.</li>
+      <li>Copia también el <b>enlace</b> del perfil (Compartir → Copiar enlace) para abrirlo desde aquí.</li>
+      <li>Actualiza sus cifras cada semana: guardo la anterior y te muestro si mejora o empeora.</li></ol></div>
+    <div class="card small"><b>Cómo calculo el puntaje</b><div class="muted" style="margin-top:6px">40% ganancia ajustada por su peor caída · 25% consistencia mes a mes · 20% trayectoria (días y copiadores) · 15% control del riesgo. Resto puntos si la ganancia es extraordinaria (apalancamiento), si el drawdown pasa de 40% o si tiene menos de 90 días.<br><br>
+      <span class="pill p-ruptura">SÓLIDO</span> 70+ &nbsp; <span class="pill p-cerca">ACEPTABLE</span> 50–69 &nbsp; <span class="pill p-down">RIESGOSO</span> &lt;50</div></div>
+    <details class="card small"><summary><b>Respaldo de la lista</b></summary>
+      <p class="muted">La lista vive solo en este teléfono. Copia este texto y guárdalo (por ejemplo en tus notas) para recuperarla o pasarla a otro equipo.</p>
+      <textarea id="tBackup" rows="4" readonly>${esc(exportBackup(list))}</textarea>
+      <button class="btn ghost block" data-act="copyBackup" style="margin:8px 0">Copiar respaldo</button>
+      <textarea id="tRestore" rows="3" placeholder="Pega aquí un respaldo para restaurar"></textarea>
+      <button class="btn ghost block" data-act="restore" style="margin-top:8px">Restaurar (reemplaza la lista actual)</button></details>
+    <p class="disclaimer">Copiar a un trader no garantiza sus resultados: el rendimiento pasado no se repite necesariamente y en futuros puedes perder todo lo asignado. Empieza con montos pequeños. No es asesoría financiera.</p>`;
+}
+
+function traderForm(t = {}) {
+  const v = (f) => (t[f] ?? '');
+  const inp = (f, l, ph = '', step = 'any') => `<label class="f">${l}<input name="${f}" type="number" step="${step}" inputmode="decimal" value="${v(f)}" placeholder="${ph}"></label>`;
+  return `<form class="card" id="traderForm">${t.id ? `<input type="hidden" name="id" value="${t.id}">` : ''}
+    <label class="f">Nombre del trader<input name="name" value="${esc(v('name'))}" placeholder="Como aparece en Binance" required></label>
+    <label class="f">Enlace del perfil (opcional)<input name="link" type="url" value="${esc(v('link'))}" placeholder="https://www.binance.com/es/copy-trading/lead-details/…"></label>
+    <label class="f">Tipo<select name="type">${['Futuros', 'Spot'].map((x) => `<option ${x === (t.type || 'Futuros') ? 'selected' : ''}>${x}</option>`).join('')}</select></label>
+    <div class="grid3">${inp('roi30', 'ROI 30d %', '12.5')}${inp('roi90', 'ROI 90d %', '35')}${inp('roi180', 'ROI 180d %', '60')}</div>
+    <div class="grid2">${inp('mdd', 'MDD (drawdown) %', '18')}${inp('days', 'Días operando', '240', '1')}</div>
+    <div class="grid2">${inp('copiers', 'Copiadores', '850', '1')}${inp('winRate', 'Tasa de acierto % (opc.)', '62')}</div>
+    <label class="f">Nota (opcional)<input name="note" value="${esc(v('note'))}" placeholder="Ej: opera BTC y ETH, apalancamiento 5x"></label>
+    <button class="btn block" type="submit">${t.id ? 'Guardar cifras nuevas' : 'Agregar a mi lista'}</button>
+    <p class="note">Escribe los porcentajes como números (−8 si es negativo). Si 180 días no aparece, déjalo vacío.</p></form>`;
+}
+
+function vTrader(id) {
+  if (id === 'nuevo') return `<h2>Nuevo trader <a href="#/traders">volver</a></h2>${traderForm()}`;
+  const t = loadTraders().find((x) => x.id === id);
+  if (!t) return `<div class="card">No encontré ese trader. <a href="#/traders">Volver a la lista</a></div>`;
+  const s = scoreTrader(t);
+  const bar = (k, v) => `<div class="small row between" style="margin-top:8px"><span class="muted">${k}</span><span class="mono">${v}</span></div><div class="bar"><i style="width:${v}%"></i></div>`;
+  const hist = (t.history || []).slice().reverse();
+  return `<h2>${esc(t.name)} <a href="#/traders">volver</a></h2>
+    <div class="card"><div class="row">${scoreRing(s.score, 72)}<div class="grow"><span class="pill ${s.grade.cls}">${s.grade.label}</span><div class="small muted" style="margin-top:6px">${esc(t.type)} · actualizado ${date(t.updated)}${delta(t, 'score') ? ' · puntaje' + delta(t, 'score') : ''}</div>${t.note ? `<div class="small" style="margin-top:4px">${esc(t.note)}</div>` : ''}</div>
+      <button class="icon-btn" data-act="fav" data-id="${t.id}" aria-label="Favorito">${t.fav ? '★' : '☆'}</button></div>
+      ${s.flags.map((f) => `<div class="callout ${f.cls === 'down' ? 'warn' : f.cls === 'info' ? 'info' : 'warn'}">${f.cls === 'down' ? '⚠️ ' : ''}${esc(f.t)}</div>`).join('')}
+      ${t.link ? `<a class="btn block" style="margin-top:8px" href="${esc(t.link)}" target="_blank" rel="noopener">Abrir perfil en Binance</a>` : ''}</div>
+    <div class="grid3">
+      <div class="stat"><div class="k">ROI 30d</div><div class="v ${t.roi30 >= 0 ? 'up' : 'down'}">${pct(t.roi30)}${delta(t, 'roi30')}</div></div>
+      <div class="stat"><div class="k">ROI 90d</div><div class="v ${t.roi90 >= 0 ? 'up' : 'down'}">${pct(t.roi90)}${delta(t, 'roi90')}</div></div>
+      <div class="stat"><div class="k">ROI 180d</div><div class="v ${t.roi180 >= 0 ? 'up' : 'down'}">${pct(t.roi180)}</div></div>
+      <div class="stat"><div class="k">MDD</div><div class="v down">${t.mdd != null ? t.mdd.toFixed(1) + '%' : '–'}${delta(t, 'mdd')}</div></div>
+      <div class="stat"><div class="k">Días</div><div class="v">${t.days ?? '–'}</div></div>
+      <div class="stat"><div class="k">Copiadores</div><div class="v">${t.copiers != null ? fmt(t.copiers) : '–'}${delta(t, 'copiers')}</div></div></div>
+    <h2>Detalle del puntaje</h2>
+    <div class="card">${bar('Ganancia ajustada por caída (40%)', s.parts.ret)}${bar('Consistencia (25%)', s.parts.cons)}${bar('Trayectoria (20%)', s.parts.traj)}${bar('Control del riesgo (15%)', s.parts.risk)}</div>
+    ${hist.length > 1 ? `<h2>Evolución</h2><div class="card scroll"><table><tr><th>Fecha</th><th>ROI 30d</th><th>ROI 90d</th><th>MDD</th><th>Puntaje</th></tr>
+      ${hist.map((h) => `<tr><td>${date(h.at)}</td><td>${pct(h.roi30)}</td><td>${pct(h.roi90)}</td><td>${h.mdd != null ? h.mdd.toFixed(1) + '%' : '–'}</td><td><b>${h.score}</b></td></tr>`).join('')}</table></div>` : ''}
+    <h2>Actualizar cifras</h2>${traderForm(t)}
+    <button class="btn ghost block" data-act="del" data-id="${t.id}" style="color:var(--down);margin-top:4px">Eliminar de mi lista</button>
+    <p class="disclaimer">Puntaje propio de Eintes Robot con los datos que ingresaste. No es asesoría financiera.</p>`;
+}
+
+function tradersHomeCard() {
+  const r = ranked(loadTraders()).slice(0, 3);
+  if (!r.length) return '';
+  return `<h2>Mis traders <a href="#/traders">ver todos</a></h2><div class="card list">${r.map(traderItem).join('')}</div>`;
+}
+
 const loadingView = (msg) => `<div class="card" style="text-align:center;padding:28px 16px">${robotSvg(72, 'calma', 'ld')}<div class="muted" style="margin-top:8px"><span class="spin"></span> ${esc(msg)} <span class="prog"></span></div></div><div class="skeleton"></div><div class="skeleton"></div>`;
 
 // ---------------- Navegación ----------------
@@ -353,7 +442,7 @@ async function render() {
   document.querySelectorAll('#tabs a').forEach((a) => a.classList.toggle('on', a.dataset.tab === (tab === 'moneda' ? 'mercado' : tab)));
   const needsMarket = ['inicio', 'mercado', 'moneda'].includes(tab);
   const draw = () => {
-    view.innerHTML = tab === 'mercado' ? vMercado(params) : tab === 'moneda' ? vMoneda(parts[1]) : tab === 'probar' ? vProbar(params) : tab === 'robot' ? vRobot() : vInicio();
+    view.innerHTML = tab === 'mercado' ? vMercado(params) : tab === 'moneda' ? vMoneda(parts[1]) : tab === 'probar' ? vProbar(params) : tab === 'robot' ? vRobot() : tab === 'traders' ? (parts[1] ? vTrader(parts[1]) : vTraders()) : vInicio();
     window.scrollTo(0, 0);
     if (tab === 'mercado') applySearch();
   };
@@ -364,7 +453,16 @@ document.addEventListener('click', (e) => {
   const go = e.target.closest('[data-go]');
   if (go && !e.target.closest('a,button')) location.hash = go.dataset.go;
   if (e.target.id === 'pRun') runProbar();
+  const act = e.target.closest('[data-act]');
+  if (act) traderAction(act.dataset.act, act.dataset.id);
 });
+function traderAction(act, id) {
+  let list = loadTraders();
+  if (act === 'fav') { const t = list.find((x) => x.id === id); if (t) { t.fav = !t.fav; saveTraders(list); render(); } }
+  else if (act === 'del') { if (!confirm('¿Eliminar este trader de tu lista?')) return; saveTraders(list.filter((x) => x.id !== id)); toast('Trader eliminado'); location.hash = '#/traders'; }
+  else if (act === 'copyBackup') { const t = $('#tBackup'); t.select(); (navigator.clipboard?.writeText(t.value) || Promise.reject()).then(() => toast('Respaldo copiado'), () => { document.execCommand('copy'); toast('Respaldo copiado'); }); }
+  else if (act === 'restore') { try { const l = importBackup($('#tRestore').value.trim()); if (!confirm(`Se reemplazará tu lista por ${l.length} traders. ¿Continuar?`)) return; saveTraders(l); toast('Lista restaurada'); render(); } catch (err) { toast(err.message || 'Respaldo no válido'); } }
+}
 function applySearch() {
   const q = (state.q || '').trim().toLowerCase(), items = document.querySelectorAll('#mList .item');
   let shown = 0;
@@ -374,6 +472,16 @@ function applySearch() {
 document.addEventListener('input', (e) => { if (e.target.id === 'mSearch') { state.q = e.target.value; applySearch(); } });
 document.addEventListener('change', (e) => { if (e.target.id === 'pMode') { const o = $('#pBotOpts'); if (o) o.style.display = e.target.value === 'bot' ? '' : 'none'; } });
 document.addEventListener('submit', (e) => {
+  if (e.target.id === 'traderForm') {
+    e.preventDefault();
+    try {
+      const data = Object.fromEntries(new FormData(e.target));
+      const list = upsertTrader(loadTraders(), data); saveTraders(list);
+      const id = data.id || list[list.length - 1].id;
+      toast(data.id ? 'Cifras actualizadas' : 'Trader agregado'); location.hash = `#/traders/${id}`; render();
+    } catch (err) { toast(err.message); }
+    return;
+  }
   if (e.target.id !== 'prefsForm') return;
   e.preventDefault();
   const fd = new FormData(e.target);
