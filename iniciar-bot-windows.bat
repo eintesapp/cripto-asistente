@@ -65,6 +65,17 @@ echo.
 echo  Configuracion guardada en modo %MODE%.
 
 :iniciar
+rem Nunca dos bots a la vez: revisar si ya hay uno corriendo o si el inicio automatico esta activo
+powershell -NoProfile -Command "if ((Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -match 'bot\.mjs' }) -or ((Get-ScheduledTask -TaskName 'Eintes Robot' -ErrorAction SilentlyContinue).State -eq 'Running')) { exit 3 }"
+if errorlevel 3 (
+  echo.
+  echo  YA HAY UN BOT CORRIENDO ^(o el inicio automatico esta activo^).
+  echo  No se abrira otro para evitar compras dobles.
+  echo  Para detener el automatico: Programador de tareas ^> Eintes Robot ^> Finalizar.
+  echo.
+  pause
+  exit /b 0
+)
 echo.
 echo  Iniciando el bot... Deberias recibir "Bot iniciado" en Telegram.
 echo  NO cierres esta ventana (puedes minimizarla).
