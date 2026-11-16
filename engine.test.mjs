@@ -1,10 +1,10 @@
 // Pruebas del motor. Ejecutar con:  node test/engine.test.mjs
 import assert from 'node:assert/strict';
-import { sma, ema, rsi, atr } from '../engine/indicators.js';
-import { computeIndicators, evaluate, analyzeSeries } from '../engine/signals.js';
-import { backtest } from '../engine/backtest.js';
-import { positionSize } from '../engine/risk.js';
-import { parseKlines, topUsdtPairs } from '../engine/binance.js';
+import { sma, ema, rsi, atr } from './indicators.js';
+import { computeIndicators, evaluate, analyzeSeries } from './signals.js';
+import { backtest } from './backtest.js';
+import { positionSize } from './risk.js';
+import { parseKlines, topUsdtPairs } from './binance.js';
 
 let passed = 0;
 const test = (name, fn) => { fn(); passed++; console.log('✓', name); };

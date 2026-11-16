@@ -1,0 +1,25 @@
+# ===== NUNCA subir a GitHub (repositorio público) =====
+# Claves de Binance y Telegram
+.env
+.env.*
+!env.ejemplo
+CLAVES*.txt
+*clave*.txt
+*Backup-codes*
+*.key
+*.key.pub
+*.pem
+
+# Estado del bot (operaciones, saldo virtual, chat)
+bot-state*.json
+papel-estado.json
+
+# Resultados locales de evaluaciones
+resultado-*.html
+resultado-*.json
+
+# Dependencias y basura del sistema
+node_modules/
+.DS_Store
+Thumbs.db
+*.zip

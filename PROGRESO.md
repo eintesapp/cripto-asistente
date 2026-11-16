@@ -2,7 +2,7 @@
 
 > Si abres un chat nuevo con Claude, pega el enlace del repositorio (https://github.com/eintesapp/cripto-asistente) y di: "lee PROGRESO.md y continuemos". Con este archivo se retoma todo.
 
-Última actualización: 9 de noviembre de 2026 · versión 2.6
+Última actualización: 16 de noviembre de 2026 · versión 2.6.1
 
 ## Qué es
 Asistente de trading personal para Binance (uso propio, no comercial por ahora):
@@ -18,14 +18,19 @@ Asistente de trading personal para Binance (uso propio, no comercial por ahora):
 - [x] App Eintes Robot con pestañas Inicio, Mercado, Probar (backtest), **Traders** y Robot
 - [x] Bot de Telegram con comandos /estado, /revisar, /cerrar, /pausa, /reanudar
 - [x] Bot corriendo en mi PC con Windows por las noches (`iniciar-bot-windows.bat`)
-- [x] Modo papel/demo (Binance Testnet) para probar sin dinero real
+- [x] Modo **papel** (dinero virtual, precios reales; en uso desde el 8 nov) y modo testnet
+- [x] **2.6.1: una sola carpeta de trabajo** (`APP TRADER\eintes-robot`, conectada a GitHub) con la app 2.6 + bot Ruptura 55; `.gitignore` excluye `.env`, estados y claves
 - [x] **v2.6: seguimiento de hasta 10 traders de Copy Trading** con puntaje propio (ver README, sección Fase 7)
 - [ ] Pasar a dinero real antes de fines de noviembre 2026, con montos pequeños
-- [ ] Conseguir un equipo que quede encendido de día (Oracle Cloud gratis no tenía capacidad)
+- [ ] Subir la versión 2.6.1 a GitHub (falta tu confirmación y entrar con la cuenta eintesapp)
+- [ ] Reinicio automático del bot (Programador de tareas) y PC sin suspensión
+- [ ] Pasar el bot a una tablet Android con Termux (24/7)
+- [ ] Revisar resultados del modo papel antes de decidir dinero real
 - [ ] Seguir afinando estrategias según resultados
 
 ## Configuración del bot (`bot-config.json`)
-Orden de 7 USDT, máximo 10 USDT por orden, 1 operación abierta a la vez, pérdida diaria máxima 0,5 USDT.
+Bot v2 (Ruptura 55 diario): riesgo 1,5% por operación, orden entre 6 y 15 USDT, hasta 3 operaciones abiertas, pérdida diaria máxima 2 USDT, saldo virtual inicial del modo papel 50 USDT.
+(La versión antigua 1h/4h usaba 7 USDT, 1 operación y 0,5 USDT de pérdida diaria.)
 
 ## Seguridad (importante)
 - El repositorio es **público**: **nunca** subir el archivo `.env` ni claves de Binance o el token de Telegram.
@@ -34,6 +39,7 @@ Orden de 7 USDT, máximo 10 USDT por orden, 1 operación abierta a la vez, pérd
 - La lista de traders vive solo en el teléfono: usar **Traders → Respaldo de la lista** y guardar el texto.
 
 ## Historial de cambios
+- **2.6.1 (16 nov 2026):** GitHub recibe el bot v2 Ruptura 55 (antes tenía el bot antiguo 1h/4h). Pruebas corregidas para la estructura plana del repositorio y para Windows/Termux (sin `/tmp`). Las 3 pruebas pasan.
 - **2.6 (9 nov 2026):** pestaña Traders (ranking, alertas, evolución, favoritos, respaldo) y los 3 mejores en Inicio.
 - **2.5:** versión Eintes Robot con estrategia Ruptura 55, robot con mascota, accesos rápidos a Binance y P2P.
 - **1.x:** Cripto Señales: señales por confluencia de indicadores, escáner cada 15 min y alertas a Telegram.

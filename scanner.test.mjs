@@ -1,11 +1,12 @@
 // Prueba de punta a punta del escáner con un Binance simulado (sin red).
-// Ejecutar: node test/scanner.test.mjs
+// Ejecutar: node scanner.test.mjs
 import { cp, mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const dir = await mkdtemp(join(tmpdir(), 'scan-'));
-for (const p of ['engine', 'scanner', 'config.json', 'package.json']) await cp(new URL('../' + p, import.meta.url), join(dir, p), { recursive: true });
+for (const p of ['scan.mjs', 'scan.js', 'binance.js', 'signals.js', 'indicators.js', 'config.json', 'package.json']) await cp(new URL('./' + p, import.meta.url), join(dir, p), { recursive: true });
 
 const MS = { '15m': 9e5, '1h': 36e5, '4h': 144e5, '1d': 864e5, '5m': 3e5 };
 let seed = 3; const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
@@ -25,7 +26,7 @@ globalThis.fetch = async (url, init) => {
 };
 process.env.TELEGRAM_BOT_TOKEN = 'x'; process.env.TELEGRAM_CHAT_ID = '1'; process.env.APP_URL = 'https://ejemplo.github.io/app/';
 const log = console.log; console.log = () => {};
-await import(join(dir, 'scanner/scan.mjs'));
+await import(pathToFileURL(join(dir, 'scan.mjs')).href);
 console.log = log;
 const out = JSON.parse(await readFile(join(dir, 'data/signals.json'), 'utf8'));
 const hist = JSON.parse(await readFile(join(dir, 'data/history.json'), 'utf8'));
