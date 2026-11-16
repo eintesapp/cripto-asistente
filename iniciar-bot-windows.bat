@@ -15,31 +15,42 @@ if errorlevel 1 (
 if exist ".env" goto iniciar
 
 echo.
-echo  ===== Configuracion inicial =====
-echo  Las claves se guardan SOLO en este computador, en el archivo .env de esta carpeta.
-echo  Pegalas con clic derecho y presiona Enter despues de cada una.
+echo  ===== Configuracion =====
+echo  Modos:
+echo    papel   = dinero VIRTUAL con precios REALES (recomendado para probar la estrategia)
+echo    testnet = dinero ficticio en el Testnet de Binance (solo para probar que las ordenes funcionan)
+echo    real    = tu dinero real
 echo.
-set MODE=testnet
-set /p MODE=Modo: escribe testnet (dinero ficticio) o real (dinero real) [testnet]: 
+set MODE=papel
+set /p MODE=Modo [papel]: 
 if /i "%MODE%"=="real" goto confirmar
-set MODE=testnet
-goto claves
+if /i "%MODE%"=="testnet" (set MODE=testnet& goto claves)
+set MODE=papel
+set KEY=
+set SECRET=
+goto telegram
 
 :confirmar
 set MODE=real
 echo.
 echo  ATENCION: en modo REAL el bot opera con tu dinero cuando tocas "Si" en Telegram.
 echo  Usa una clave API con permisos de Lectura y Spot Trading. NUNCA actives retiros.
-set /p OK=Escribe SI en mayusculas para confirmar: 
+set /p OK=Escribe SI para confirmar: 
 if /i not "%OK%"=="SI" (
-  echo  No confirmado. Se usara testnet.
-  set MODE=testnet
+  echo  No confirmado. Se usara modo papel.
+  set MODE=papel
+  set KEY=
+  set SECRET=
+  goto telegram
 )
 
 :claves
 echo.
+echo  Pega las claves con clic derecho y presiona Enter despues de cada una.
 set /p KEY=Binance %MODE% - API Key: 
 set /p SECRET=Binance %MODE% - Secret Key: 
+
+:telegram
 set /p TGT=Telegram - Token del bot: 
 set /p TGC=Telegram - Tu chat ID: 
 (
