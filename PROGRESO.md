@@ -2,7 +2,7 @@
 
 > Si abres un chat nuevo con Claude, pega el enlace del repositorio (https://github.com/eintesapp/cripto-asistente) y di: "lee PROGRESO.md y continuemos". Con este archivo se retoma todo.
 
-Última actualización: 16 de noviembre de 2026 · versión 2.6.1
+Última actualización: 16 de noviembre de 2026 · versión 2.6.2
 
 ## Qué es
 Asistente de trading personal para Binance (uso propio, no comercial por ahora):
@@ -23,7 +23,8 @@ Asistente de trading personal para Binance (uso propio, no comercial por ahora):
 - [x] **v2.6: seguimiento de hasta 10 traders de Copy Trading** con puntaje propio (ver README, sección Fase 7)
 - [ ] Pasar a dinero real antes de fines de noviembre 2026, con montos pequeños
 - [ ] Subir la versión 2.6.1 a GitHub (falta tu confirmación y entrar con la cuenta eintesapp)
-- [ ] Reinicio automático del bot (Programador de tareas) y PC sin suspensión
+- [x] **Reinicio automático** (16 nov): tarea "Eintes Robot" del Programador de tareas abre `iniciar-bot-automatico.ps1` al iniciar sesión; si el bot se cae lo reabre en 1 min (más espera si se cae seguido); nunca abre dos bots; pide a Windows no suspenderse mientras corre. Registro en `bot-log.txt`. Para apagar: `detener-bot.bat`.
+- [ ] Ajustes de energía que debo hacer yo: no suspender con la tapa cerrada / enchufado, e iniciar sesión tras reinicios de Windows
 - [ ] Pasar el bot a una tablet Android con Termux (24/7)
 - [ ] Revisar resultados del modo papel antes de decidir dinero real
 - [ ] Seguir afinando estrategias según resultados
@@ -39,6 +40,7 @@ Bot v2 (Ruptura 55 diario): riesgo 1,5% por operación, orden entre 6 y 15 USDT,
 - La lista de traders vive solo en el teléfono: usar **Traders → Respaldo de la lista** y guardar el texto.
 
 ## Historial de cambios
+- **2.6.2 (16 nov 2026):** inicio y reinicio automático del bot en Windows, protección contra dos bots, `detener-bot.bat`.
 - **2.6.1 (16 nov 2026):** GitHub recibe el bot v2 Ruptura 55 (antes tenía el bot antiguo 1h/4h). Pruebas corregidas para la estructura plana del repositorio y para Windows/Termux (sin `/tmp`). Las 3 pruebas pasan.
 - **2.6 (9 nov 2026):** pestaña Traders (ranking, alertas, evolución, favoritos, respaldo) y los 3 mejores en Inicio.
 - **2.5:** versión Eintes Robot con estrategia Ruptura 55, robot con mascota, accesos rápidos a Binance y P2P.
