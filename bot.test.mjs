@@ -104,12 +104,20 @@ ok(`Detecta la ruptura de 55 velas (SOL cierra 156 > techo 150; stop inicial −
 
 // 1. Revisión diaria → propuesta solo de SOL
 const r1 = await bot.dailyCycle();
-assert.equal(r1.found, 1); assert.match(last(), /RUPTURA SOLUSDT/); assert.equal(sent.at(-1).reply_markup.inline_keyboard[0][0].callback_data, 'buy:1');
+const prop = sent.find((m) => /RUPTURA SOLUSDT/.test(m.text));
+assert.equal(r1.found, 1); assert.ok(prop); assert.equal(prop.reply_markup.inline_keyboard[0][0].callback_data, 'buy:1');
 ok('Revisión diaria propone solo la moneda con ruptura, con botones Sí/No');
+
+// 1b. Resumen nocturno después de la revisión
+assert.match(last(), /Revisión diaria/); assert.match(last(), /Revisé 3 criptos\. Señales nuevas: <b>1<\/b>/); assert.match(last(), /Más cerca de dar señal/);
+assert.equal(sent.at(-1).reply_markup, undefined);
+const nAntes = sent.length;
+ok('Envía el resumen diario (criptos revisadas, señales y las más cercanas)');
 
 // 2. No repite el mismo día
 assert.equal((await bot.dailyCycle()).skipped, true);
-ok('No vuelve a revisar la misma vela diaria');
+assert.equal(sent.length, nAntes);
+ok('No vuelve a revisar la misma vela diaria ni repite el resumen');
 
 // 3. Tamaño de posición
 const z50 = bot.sizing({ capital: 50, freeUsdt: 50, slPct: 0.12, minNotional: 5 });
