@@ -10,7 +10,7 @@ import { readFileSync, writeFileSync, renameSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createExchange, floorToStep, roundToTick } from './exchange.js';
 import { klines as fetchKlines, pool } from './binance.js';
-import { MAJORS, TREND, breakoutSignal, trailingStop } from './tendencia.js';
+import { MAJORS, TREND, breakoutSignal, trailingStop, trendIndicators } from './tendencia.js';
 
 export const DEFAULT_CONFIG = {
   riskPct: 1.5,             // % del capital que se arriesga por operación (se ajusta al mínimo de Binance)
@@ -129,7 +129,43 @@ export function createBot({ env, config = {}, statePath = 'bot-state.json', pape
     st.lastDailyCandle = Math.max(st.lastDailyCandle, last);
     for (const k of Object.keys(st.sent)) if (now() - st.sent[k] > 30 * DAY) delete st.sent[k];
     save();
+    if (cfg.dailySummary !== false) {
+      try { await send(dailySummary(candles, found.length, proposed)); } catch (e) { log('resumen', e.message); }
+    }
     return { found: found.length, proposed };
+  }
+
+  /** Resumen nocturno: cuántas criptos revisó y cuáles están más cerca de dar señal. */
+  function dailySummary(candles, found, proposed) {
+    const rows = [];
+    for (const s of symbols) {
+      const c = candles[s];
+      if (!c || c.error || c.close.length < 210) continue;
+      const x = trendIndicators(c), i = c.close.length - 1;
+      if (x.sma200[i] == null || x.prevHigh[i] == null) continue;
+      const close = c.close[i];
+      // Subida necesaria para cumplir las dos condiciones: superar el máximo de 55 días y la media de 200
+      const falta = Math.max(0, (x.prevHigh[i] / close - 1) * 100, (x.sma200[i] / close - 1) * 100);
+      rows.push({ s: s.replace(/USDT$/, ''), vsSma: (close / x.sma200[i] - 1) * 100, falta });
+    }
+    const sobre = rows.filter((r) => r.vsSma > 0);
+    const cerca = [...rows].sort((a, b) => a.falta - b.falta).slice(0, 3);
+    const pct = (v) => (v >= 0 ? '+' : '') + v.toFixed(1).replace('.', ',') + '%';
+    const lineas = cerca.map((r) => `• ${r.s}: necesita subir ${pct(r.falta)}` + (r.vsSma > 0 ? ' (ya está sobre su media 200)' : ` (hoy ${pct(r.vsSma)} vs su media 200)`));
+    const tono = sobre.length >= rows.length / 2 ? '🟢 mayoría alcista' : sobre.length === 0 ? '🔴 todo bajista' : '🟠 mayoría bajista';
+    const abiertas = openTrades().length;
+    return [
+      `🌙 <b>Revisión diaria</b> · ${MODE.split(' (')[0]}`,
+      `Revisé ${rows.length} criptos. Señales nuevas: <b>${found}</b>` + (found ? ` · propuestas: ${proposed}` : ''),
+      `Sobre su media de 200 días: ${sobre.length} de ${rows.length} (${tono})`,
+      `Operaciones abiertas: ${abiertas}`,
+      '',
+      '<b>Más cerca de dar señal:</b>',
+      ...(lineas.length ? lineas : ['• sin datos']),
+      '',
+      ...(found ? [] : ['Sin señal hoy: el robot espera. Mañana vuelvo a revisar a las 21:00.']),
+      '<i>Información, no recomendación de compra.</i>',
+    ].join('\n');
   }
 
   async function propose(sig, { test = false } = {}) {
